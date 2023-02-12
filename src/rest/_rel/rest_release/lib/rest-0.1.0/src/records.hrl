@@ -1,0 +1,11 @@
+-record(delivery,{
+        id,
+        pid,
+        stato,
+        start_x,
+        start_y,
+        current_x,
+        current_y,
+        end_x,
+        end_y
+    }).
