@@ -9,8 +9,6 @@
 init( Req0=#{method := <<"POST">>}, State0 ) ->
 	{ok, Data, Req1} = cowboy_req:read_body(Req0),
     
-
-
     DecodedTuple = jiffy:decode( Data ),
 	{ [	{ <<"id">>, Id },
 		{ <<"pid">>, Pid },
@@ -23,10 +21,8 @@ init( Req0=#{method := <<"POST">>}, State0 ) ->
 		{ <<"end_y">>, End_y }
     ] } = DecodedTuple, 
 
-
-
-
-    db_initializer:add(#delivery{
+    Fun = fun() -> 
+        mnesia:write(#delivery{
         id=Id,
         pid = list_to_atom(binary_to_list(Pid)),
         stato = list_to_atom(binary_to_list(Stato)),
@@ -36,10 +32,10 @@ init( Req0=#{method := <<"POST">>}, State0 ) ->
         current_y = Current_y,
         end_x = End_x,
         end_y = End_y
-    }),
-	Req = cowboy_req:reply(200, #{
-        <<"content-type">> => <<"application/json">>
-    }, jiffy:encode(Data), Req1),
+        })
+    end,
+    {Status, Result} = mnesia_wrapper:transaction(Fun),
+    Req = return_req(Status,Result,Req1),
     {ok, Req, State0};
 
 init( Req0=#{method := <<"GET">>}, State0 ) ->
@@ -47,16 +43,25 @@ init( Req0=#{method := <<"GET">>}, State0 ) ->
     MatchHead = #delivery{id='$1', _='_'},
     Guard = {'=', '$1',Qs},
     Result = ['$_'],
-    {atomic,Data} = db_initializer:select(delivery,[{MatchHead, [Guard],[Result]}]),
-    Req = cowboy_req:reply(200, #{
-        <<"content-type">> => <<"application/json">>
-    }, jiffy:encode(Data), Req0),
+    Fun = fun() ->
+        mnesia:select(delivery,[{MatchHead, [Guard],[Result]}])
+    end,
+    {Status, Result} = mnesia_wrapper:transaction(Fun),
+    Req = return_req(Status,Result,Req0),
     {ok, Req, State0};
-
 
 init(Req0, State) ->
     Req = cowboy_req:reply(405, #{
         <<"allow">> => <<"POST,GET">>
     }, Req0),
     {ok, Req, State}.   
+
+return_req(atomic,Result,Req0)->
+    cowboy_req:reply(200, #{
+        <<"content-type">> => <<"application/json">>
+    }, jiffy:encode(Result), Req0);
+return_req(aborted,_,Req0)->
+    cowboy_req:reply(400, #{
+        <<"content-type">> => <<"application/json">>
+    }, "", Req0).
 
