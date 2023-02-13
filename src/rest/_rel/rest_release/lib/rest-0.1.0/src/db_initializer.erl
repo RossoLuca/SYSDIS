@@ -1,6 +1,7 @@
 -module(db_initializer).
 -export([init/0]).
 %-export([init/0, listen/0]) .
+-export([init/0,addRange/1,addRangeWrapper/1,add/1,select/2]).
 -include_lib("stdlib/include/qlc.hrl").
 -include("records.hrl").
 
@@ -12,7 +13,6 @@ init() ->
     mnesia:create_table(delivery,
         [{attributes, record_info(fields, delivery)}, 
         {disc_copies, [node()]}]). 
-%    init_listener().
 
 
 %init_listener() -> 
@@ -48,3 +48,25 @@ init() ->
 %    addRangeWrapper( Rest );
 %addRangeWrapper( [ ] ) ->
 %    ok.
+
+addRangeWrapper( [ First | Rest ] ) ->
+    mnesia:write( First ),
+    addRangeWrapper( Rest );
+addRangeWrapper( [ ] ) ->
+    ok.
+
+
+add( Item ) ->
+    Item.
+
+
+select( Entity, {MatchHead, Guard, Result} ) ->
+    {Entity,MatchHead,Guard,Result}.
+
+
+% get_all( Entity ) -> 
+%     select( Entity, '_', [ ], ['$_'] ).
+
+
+% counter( Entity ) ->
+%     length( get_all( Entity ) ).
