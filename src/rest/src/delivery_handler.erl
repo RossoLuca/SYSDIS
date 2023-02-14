@@ -21,8 +21,7 @@ init( Req0=#{method := <<"POST">>}, State0 ) ->
 		{ <<"end_y">>, End_y }
     ] } = DecodedTuple, 
 
-    Fun = fun() -> 
-        mnesia:write(#delivery{
+    Delivery = #delivery{
         id=Id,
         pid = list_to_atom(binary_to_list(Pid)),
         stato = list_to_atom(binary_to_list(Stato)),
@@ -32,9 +31,28 @@ init( Req0=#{method := <<"POST">>}, State0 ) ->
         current_y = Current_y,
         end_x = End_x,
         end_y = End_y
-        })
-    end,
+    },
+
+    erlang:display(Delivery),
+
+    % Fun = fun() -> 
+    %    mnesia:write(#delivery{
+    %    id=Id,
+    %    pid = list_to_atom(binary_to_list(Pid)),
+    %    stato = list_to_atom(binary_to_list(Stato)),
+    %    start_x = Start_x,
+    %    start_y = Start_y,
+    %    current_x = Current_x,
+    %    current_y = Current_y,
+    %    end_x = End_x,
+    %    end_y = End_y
+    %    })
+    % end,
+    Fun = fun () -> mnesia:write(Delivery) end,
+
     {Status, Result} = mnesia_wrapper:transaction(Fun),
+    io:format("~p ~n", [Status]),
+    io:format("~p ~n", [Result]),
     Req = return_req(Status,Result,Req1),
     {ok, Req, State0};
 

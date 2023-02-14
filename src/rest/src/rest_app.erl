@@ -6,7 +6,7 @@
 
 start(_Type, _Args) ->
     % net_kernel:start(['rest_api@rest_host']),
-    erlang:set_cookie(node(),'dis_sys'),
+    % erlang:set_cookie(node(),'dis_sys'),
 	{ ok, Pid } = rest_sup:start_link(),
     Routes = [{
         '_',
