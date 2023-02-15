@@ -21,6 +21,7 @@ init( Req0=#{method := <<"POST">>}, State0 ) ->
 		{ <<"end_y">>, End_y }
     ] } = DecodedTuple, 
 
+    io:format("~p ~n", [DecodedTuple]),
     Delivery = #delivery{
         id=Id,
         pid = list_to_atom(binary_to_list(Pid)),

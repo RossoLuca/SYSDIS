@@ -1,0 +1,27 @@
+version: '3.3'
+
+# services:
+  # node:
+  #   build: ./repository/
+  #   hostname: node
+
+  # gateway:
+  #   build: ./rest/
+  #   links:
+  #     - node:first
+  #   hostname: gateway
+  #   ports: 
+  #     - "8080:8080"
+
+services:
+  db:
+    build:
+        context: ./repository/
+        dockerfile: Dockerfile
+
+  rest:
+    build:
+        context: ./rest/
+        dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
