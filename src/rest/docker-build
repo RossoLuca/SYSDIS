@@ -1,0 +1,4 @@
+#!/bin/bash
+
+docker rmi rest_image:latest
+docker build -t rest_image:latest .

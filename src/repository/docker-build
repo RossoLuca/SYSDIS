@@ -1,0 +1,4 @@
+#!/bin/bash
+
+docker rmi db_image:latest
+docker build -t db_image:latest .

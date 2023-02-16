@@ -11,7 +11,7 @@ start(_Type, _Args) ->
     Routes = [{
         '_',
         [
-            { "/delivery/getactivedrones", active_drove_handler, [ ] },         %% returns the list of all active drones
+            { "/delivery/get_active_drones", active_drone_handler, [ ] },         %% returns the list of all active drones
             { "/delivery/", delivery_handler, [ ] }   %% updates a delivery
         ]
     }],

@@ -1,19 +1,21 @@
 -module(active_drone_handler).
 -behavior(cowboy_handler).
+-include_lib("stdlib/include/qlc.hrl").
 -include( "records.hrl" ).
 -export([init/2]).
 
 init( Req0=#{method := <<"GET">>}, State ) ->
     MatchHead = #delivery{stato='$1', _='_'},
-    GuardPending = {'=', '$1',"pending"},
-    GuardFlying = {'=', '$1',"flying"},
-    Result = ['$_'],
-    Fun = fun() ->
-        mnesia:select(delivery,[{MatchHead, [GuardPending,GuardFlying],[Result]}])
-    end,
-    {Status, Result} = mnesia_wrapper:transaction(Fun),
+    GuardActive = {'=/=', '$1',completed},
+    MatchResult = ['$_'],
+
+    MatchSpecs = [{MatchHead, [GuardActive],[MatchResult]}],
+    
+    io:format("~p~n", [MatchSpecs]),
+    {Status, Result} = mnesia_wrapper:transaction(select, delivery, MatchSpecs),
     Req = return_req(Status,Result,Req0),
     {ok, Req, State};
+    
 init(Req0, State) ->
     Req = cowboy_req:reply(405, #{
         <<"allow">> => <<"GET">>
