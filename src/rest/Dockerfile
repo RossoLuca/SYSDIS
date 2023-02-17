@@ -1,7 +1,7 @@
 FROM ubuntu:latest
 
 RUN apt-get update
-RUN apt-get install erlang  make git gcc g++ make wget curl bash rebar3 -y
+RUN apt-get install erlang git gcc g++ make wget curl bash rebar3 -y
 
 RUN mkdir /rest
 WORKDIR /rest

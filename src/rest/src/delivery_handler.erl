@@ -59,7 +59,7 @@ init( Req0=#{method := <<"GET">>}, State0 ) ->
         false -> 
             %% da implementare quando non trova id nella query string
             %% select(AtomQs, Req0, State0)
-            return_req(aborted,#{reason => "not implemented"},Req)
+            return_req(aborted,#{reason => "not implemented"},Req0)
     end;
 
 init(Req0, State) ->

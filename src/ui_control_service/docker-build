@@ -1,0 +1,4 @@
+#!/bin/bash
+
+docker rmi ui_control_service_image:latest
+docker build -t ui_control_service_image:latest .

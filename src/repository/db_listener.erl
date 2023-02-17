@@ -67,6 +67,6 @@ adaptResponse(Deliveries) ->
                     current_x => Del#delivery.current_x,
                     current_y => Del#delivery.current_y,
                     end_x => Del#delivery.end_x,
-                    end_Y => Del#delivery.end_y
+                    end_y => Del#delivery.end_y
                 }  
     end, Deliveries).

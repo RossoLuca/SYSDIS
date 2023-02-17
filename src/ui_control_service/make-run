@@ -1,0 +1,8 @@
+#!/bin/bash
+
+rm -rf deps/
+rm -rf ebin/
+rm -rf .erlang.mk/
+rm -rf _rel/
+
+make run
