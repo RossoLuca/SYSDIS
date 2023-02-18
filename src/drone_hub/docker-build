@@ -1,0 +1,4 @@
+#!/bin/bash
+
+docker rmi drone_hub_image:latest
+docker build -t drone_hub_image:latest .
