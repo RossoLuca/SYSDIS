@@ -18,12 +18,12 @@ init( Req0=#{method := <<"GET">>}, State ) ->
             drone_hub_wrapper:notify(kill,Id),
             Req = cowboy_req:reply(200, #{
                 <<"content-type">> => <<"application/json">>
-            }, "", Req0),
+            }, jiffy:encode(#{result => ok}), Req0),
             {ok, Req, State};
         false -> 
             Req = cowboy_req:reply(400, #{
                 <<"content-type">> => <<"application/json">>
-            }, "", Req0),
+            }, jiffy:encode(#{result => badargument}), Req0),
             {ok, Req, State}
     end;
 

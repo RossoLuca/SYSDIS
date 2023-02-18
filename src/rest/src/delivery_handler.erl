@@ -5,7 +5,7 @@
 
 
 -export([init/2]).
--define(MAXSIZE,1000).
+-define(MAXSIZE,1000.0).
 
 init( Req0=#{method := <<"POST">>}, State0 ) ->
 	{ok, Data, Req1} = cowboy_req:read_body(Req0),

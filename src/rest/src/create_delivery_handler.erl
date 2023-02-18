@@ -3,19 +3,22 @@
 -include_lib("stdlib/include/qlc.hrl").
 -include( "records.hrl" ).
 -export([init/2]).
--define(MAXSIZE,1000).
+-define(MAXSIZE,1000.0).
 
 init( Req0=#{method := <<"POST">>}, State ) ->
     {ok, Data, Req1} = cowboy_req:read_body(Req0),
-    DecodedTuple = jiffy:decode( Data ),
+    DecodedTuple = jiffy:decode( Data, [return_maps]),
 
-    erlang:display(DecodedTuple),
-	{ [
-		{ <<"start_x">>, Start_x },
-		{ <<"start_y">>, Start_y },
-		{ <<"end_x">>, End_x },
-		{ <<"end_y">>, End_y }
-    ] } = DecodedTuple,
+    
+    Start_x = maps:get(<<"start_x">>,DecodedTuple),
+    Start_y = maps:get(<<"start_y">>,DecodedTuple),
+    End_x = maps:get(<<"end_x">>,DecodedTuple),
+    End_y = maps:get(<<"end_y">>,DecodedTuple),
+    erlang:display(Start_x),
+    erlang:display(Start_y),
+    erlang:display(End_x),
+    erlang:display(End_y),
+
 
     
     case coordinates_check({Start_x,Start_y,End_x,End_y}) of 
@@ -23,12 +26,12 @@ init( Req0=#{method := <<"POST">>}, State ) ->
             drone_hub_wrapper:notify(create,{Start_x,Start_y,End_x,End_y}),
             Req = cowboy_req:reply(200, #{
                 <<"content-type">> => <<"application/json">>
-            }, "", Req1),
+            }, jiffy:encode(#{result => ok}), Req1),
             {ok, Req, State};
-        {_,false} ->
+        {Atom,false} ->
             Req = cowboy_req:reply(400, #{
                 <<"content-type">> => <<"application/json">>
-            }, "", Req1),
+            }, jiffy:encode(#{error => Atom}), Req1),
             {ok, Req, State}
     end;
 

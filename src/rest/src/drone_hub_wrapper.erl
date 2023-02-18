@@ -6,12 +6,12 @@
 
 notify(create,{Start_x,Start_y,End_x,End_y}) ->
     %TODO CAMBIARE HOST
-    {drone_hub, 'drone_hub@drone_hub'} ! {create, {node(),self()} ,Start_x,Start_y,End_x,End_y},
-    erlang:display(Data);
+    {drone_hub, 'drone_hub@drone_hub_host'} ! {create, {node(),self()} ,Start_x,Start_y,End_x,End_y},
+    erlang:display({Start_x,Start_y,End_x,End_y});
     % handle_response().
     
 notify(kill,Id) ->
-    {drone_hub, 'drone_hub@drone_hub'} ! {kill, {node(),self()} ,Id},
+    {drone_hub, 'drone_hub@drone_hub_host'} ! {kill, {node(),self()} ,Id},
     erlang:display(Id).
     % handle_response().
 
