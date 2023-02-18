@@ -2,12 +2,8 @@
 
 -export([insert_delivery/4, get_delivery/1, watch_delivery/2, kill_drone/1]).
 
-%% TODO: To be completed
+
 insert_delivery(StartX, StartY, EndX, EndY) when is_float(StartX), is_float(StartY), is_float(EndX), is_float(EndY) -> 
-    %% Possono essere definite dalla Rest API
-    %% _State = pending,    
-    % CurrentX = StartX,
-    % CurrentY = StartY,
 
     Delivery = #{
         start_x => StartX,
@@ -20,10 +16,8 @@ insert_delivery(StartX, StartY, EndX, EndY) when is_float(StartX), is_float(Star
         connection_timed_out -> 
             io:format("At the moment the delivery cannot be inserted to the system.~nTry again later!~n");
         Connection -> 
-            Resource = "/delivery/",
+            Resource = "/delivery/insert",
             http_utils:doPost(Connection, Resource, Delivery),
-            %% Va definita sul rest route per l'inserimento di una nuova delivery
-            %% che riceve solo StartX, StartY, EndX, EndY
             ok
     end;
 
@@ -64,8 +58,21 @@ watch_delivery(Id, Timeout) when is_integer(Timeout), is_integer(Id) ->
 watch_delivery(_Id, _Timeout) ->
     io:format("Id and Timeout must both be integer!~n").
 
-
-%% TODO: To be implemented
-kill_drone(_Id) -> 
-    %% Invio di richiesta /kill/?id=Id
+kill_drone(Id) when is_integer(Id) -> 
+    case http_utils:createConnection() of
+        connection_timed_out ->
+            io:format("At the moment the task cannot be started.~nTry again later!~n");
+        Connection ->
+            Resource = "/delivery/kill/?id=",
+            Query = Resource ++ integer_to_list(Id),
+            Response = http_utils:doGet(Connection, Query),
+            io:format("Delivery with ID ~p killed! ~n", [Id]),
+            utils:printDelivery(lists:nth(1, Response))
+            % case length(Response) of
+            %     0 -> 
+            %         io:format("Delivery with ID ~p not found! ~n", [Id]);
+            %     _ ->
+            %         utils:printDelivery(lists:nth(1, Response))
+            % end
+    end,
     ok.

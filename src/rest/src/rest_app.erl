@@ -5,14 +5,15 @@
 -export([stop/1]).
 
 start(_Type, _Args) ->
-    % net_kernel:start(['rest_api@rest_host']),
-    % erlang:set_cookie(node(),'dis_sys'),
+    
 	{ ok, Pid } = rest_sup:start_link(),
     Routes = [{
         '_',
         [
-            { "/delivery/get_active_drones", active_drone_handler, [ ] },         %% returns the list of all active drones
-            { "/delivery/", delivery_handler, [ ] }   %% updates a delivery
+            { "/delivery/get_active_drones",[],active_drone_handler, [ ] },         %% returns the list of all active drones
+            { "/delivery/",delivery_handler, [] },   %% updates a delivery
+            { "/delivery/insert",create_delivery_handler, [] },   %% Creates a new delivery
+            { "/delivery/kill",drone_kill_handler, []}
         ]
     }],
     Dispatch = cowboy_router:compile( Routes ),
@@ -24,3 +25,6 @@ start(_Type, _Args) ->
 
 stop(_State) ->
 	ok.
+
+
+

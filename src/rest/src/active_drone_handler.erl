@@ -5,7 +5,7 @@
 -export([init/2]).
 
 init( Req0=#{method := <<"GET">>}, State ) ->
-    MatchHead = #delivery{stato='$1', _='_'},
+    MatchHead = #delivery{state='$1', _='_'},
     GuardActive = {'=/=', '$1',completed},
     MatchResult = ['$_'],
 

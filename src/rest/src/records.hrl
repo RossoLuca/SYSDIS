@@ -1,11 +1,12 @@
 -record(delivery,{
         id,
         pid,
-        stato,
+        state,
         start_x,
         start_y,
         current_x,
         current_y,
         end_x,
-        end_y
+        end_y,
+        fallen
     }).

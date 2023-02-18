@@ -1,7 +1,7 @@
 -module(http_utils).
 
--define(ENDPOINT, "localhost").
-%-define(ENDPOINT, "rest_host").
+% -define(ENDPOINT, "localhost").
+-define(ENDPOINT, "rest_host").
 
 -export([createConnection/0, doGet/2, doPost/3]).
 
