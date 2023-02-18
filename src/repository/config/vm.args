@@ -1,0 +1,3 @@
+-sname db
+-mnesia
+-setcookie dis_sys
