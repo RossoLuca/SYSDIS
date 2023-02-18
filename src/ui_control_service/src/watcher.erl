@@ -4,11 +4,12 @@
 
 start(Id, Timeout, Connection) -> 
     io:format("Started monitoring of the delivery ~p ~n", [Id]),
-    State = #{stato => unknown,
+    State = #{state => unknown,
         current_x => unknown,
         current_y => unknown,
         end_x => unknown,
-        end_y => unknown},
+        end_y => unknown,
+        fallen => unknown},
     loop(Id, Timeout, Connection, State).
 
 loop(Id, Timeout, Conn, OldState) -> 
@@ -18,7 +19,7 @@ loop(Id, Timeout, Conn, OldState) ->
     Del = utils:toMap(Delivery),
 
     NewState = updateState(Id, OldState, Del),
-    State = maps:get(stato, NewState),
+    State = maps:get(state, NewState),
 
     if State == completed ->
         io:format("The delivery ~p has arrived at the final point (~p, ~p) ~n", [Id, maps:get(end_x, NewState), maps:get(end_y, NewState)]);
@@ -35,11 +36,12 @@ updateState(Id, OldState, CurrentState) ->
     if St == unknown -> 
         %% This case happens only at the first call of this function by the watcher
         %% (i.e. when the state is unknown)
-        NewState = #{stato => maps:get(stato, CurrentState),
+        NewState = #{state => maps:get(state, CurrentState),
             current_x => maps:get(current_x, CurrentState),
             current_y => maps:get(current_y, CurrentState),
             end_x => maps:get(end_x, CurrentState),
-            end_y => maps:get(end_y, CurrentState)},
+            end_y => maps:get(end_y, CurrentState),
+            falllen => maps:get(fallem, CurrentState)},
         NewState;
     true -> 
         %% This case compare the old state with the current received from the Rest API
@@ -48,17 +50,18 @@ updateState(Id, OldState, CurrentState) ->
     end.
 
 compare(Id, Old, Current) -> 
-    Old_stato = maps:get(stato, Old),
-    Current_stato = maps:get(stato, Current),
+    Old_state = maps:get(stato, Old),
+    Current_state = maps:get(stato, Current),
 
     {New_current_x, New_current_y} = update_current_position({maps:get(current_x, Old), maps:get(current_y, Old)},
              {maps:get(current_x, Current), maps:get(current_y, Current)}),
     NewState = #{
-        stato => update_stato(Id, Old_stato, Current_stato),
+        state => update_stato(Id, Old_state, Current_state),
         current_x => New_current_x,
         current_y => New_current_y,
         end_x => maps:get(end_x, Old),
-        end_y => maps:get(end_y, Old)
+        end_y => maps:get(end_y, Old),
+        fallen => check_drone_fall(Id, maps:get(fallen, Old), maps:get(fallen, Current))
     },
     NewState.
 
@@ -75,4 +78,12 @@ update_current_position({OldX, OldY}, {CurrX, CurrY}) ->
         {CurrX, CurrY};
     true ->
         {OldX, OldY}
+    end.
+
+check_drone_fall(Id, Old, Current) ->
+    if Old =/= Current ->
+        io:format("## WARNING! ##~nThe drone assigned to the the delivery ~p has fall.~nThe delivery will now be completed from a new drone.~n", [Id]),
+        Current;
+    true ->
+        Old
     end.

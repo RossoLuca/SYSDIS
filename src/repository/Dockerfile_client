@@ -1,7 +1,0 @@
-FROM erlang:latest
-RUN mkdir /src
-RUN mkdir /build
-COPY mnesia_wrapper.erl records.hrl /src
-RUN erlc -o /build /src/mnesia_wrapper.erl
-WORKDIR /build
-ENTRYPOINT ["erl", "-sname", "client", "-setcookie", "dis_sys"]
