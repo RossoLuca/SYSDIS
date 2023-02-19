@@ -49,8 +49,8 @@ getPid(Id) ->
     Image = "drone_image",
     Command = "docker -H unix:///var/run/docker.sock run --rm --name " ++ ContainerName ++ 
                     " -h " ++ HostName ++ " --net " ++ Network ++ " " ++ Image,
-    io:format("~p ~n", [Command]),
-    os:cmd(Command),
+    StdOut = os:cmd(Command),
+    erlang:display(StdOut),
     receive
         {link, {_FromNode, FromPid}} ->
             io:format("Received link from drone with Pid ~p ~n", [FromPid]),

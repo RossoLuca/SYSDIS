@@ -14,16 +14,13 @@ init( Req0=#{method := <<"POST">>}, State ) ->
     Start_y = maps:get(<<"start_y">>,DecodedTuple),
     End_x = maps:get(<<"end_x">>,DecodedTuple),
     End_y = maps:get(<<"end_y">>,DecodedTuple),
-    erlang:display(Start_x),
-    erlang:display(Start_y),
-    erlang:display(End_x),
-    erlang:display(End_y),
-
 
     
     case coordinates_check({Start_x,Start_y,End_x,End_y}) of 
         {ok,_} ->
+            erlang:display(Start_y),
             Id = drone_hub_wrapper:notify(create,{Start_x,Start_y,End_x,End_y}),
+            erlang:display(Id),
             Req = cowboy_req:reply(200, #{
                 <<"content-type">> => <<"application/json">>
             }, jiffy:encode(#{result => ok, id => Id}), Req1),

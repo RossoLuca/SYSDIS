@@ -20,5 +20,5 @@ RUN rebar3 release
 #ENTRYPOINT ["/bin/bash"]
 
 WORKDIR /drone_hub/_build/default/rel/drone_hub/bin
-#ENTRYPOINT ["./drone_hub", "console"]
-ENTRYPOINT ["/bin/bash"]
+ENTRYPOINT ["./drone_hub", "console"]
+# ENTRYPOINT ["/bin/bash"]
