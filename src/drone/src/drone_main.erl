@@ -1,14 +1,15 @@
 -module(drone_main).
 
--export([start_link/0, init/0]).
+-export([start_link/0, init/1]).
 
 start_link() ->
-    Pid = spawn(drone_main, init, []),
+    Id = list_to_integer(os:getenv("ID")),
+    Pid = spawn(drone_main, init, [Id]),
     register(drone, Pid),
     {ok, Pid}.
 
-init() ->
-    {drone_hub, 'drone_hub@drone_hub_host'} ! {link, {node(), self()}},
+init(Id) ->
+    {drone_hub, 'drone_hub@drone_hub_host'} ! {link, {node(), self()}, Id},
     loop().
 
 %% ALL THE BUSINESS LOGIC

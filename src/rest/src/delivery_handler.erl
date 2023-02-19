@@ -24,7 +24,7 @@ init( Req0=#{method := <<"POST">>}, State0 ) ->
     
     Delivery = #delivery{
         id=Id,
-        pid = binary_to_atom(Pid),
+        pid = list_to_atom(Pid),
         state = binary_to_atom(State),
         start_x = Start_x,
         start_y = Start_y,
