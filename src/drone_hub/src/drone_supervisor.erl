@@ -12,11 +12,13 @@ start_link() ->
 
 loop(IdMax) ->
     receive
-        {create, {_FromNode, _FromPid}, StartX, StartY, EndX, EndY} ->
+        {create, {_FromNode, FromPid}, StartX, StartY, EndX, EndY} ->
             io:format("Received a request of spawning a new drone from the Rest API~n"),
             Id = IdMax,
+            FromPid ! {ack, Id},
             State = pending,
-            Pid = getPid(),
+            Pid = getPid(Id),
+            io:format("~p ~n", [Pid]),
             Delivery = #{
                 id => Id,
                 state => State,
@@ -40,9 +42,20 @@ loop(IdMax) ->
     end.
 
 
-getPid() ->
-    mocked_pid.
-
+getPid(Id) ->
+    Network = "dis_sys",
+    ContainerName = "drone_" ++ integer_to_list(Id),
+    HostName = integer_to_list(Id) ++ "_host",
+    Image = "drone_image",
+    Command = "docker -H unix:///var/run/docker.sock run --rm --name " ++ ContainerName ++ 
+                    " -h " ++ HostName ++ " --net " ++ Network ++ " " ++ Image,
+    io:format("~p ~n", [Command]),
+    os:cmd(Command),
+    receive
+        {link, {_FromNode, FromPid}} ->
+            io:format("Received link from drone with Pid ~p ~n", [FromPid]),
+            FromPid
+    end.
 
 sendNewDelivery(Delivery) ->
     Conn = http_utils:createConnection(),

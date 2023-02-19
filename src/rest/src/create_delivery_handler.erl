@@ -23,10 +23,10 @@ init( Req0=#{method := <<"POST">>}, State ) ->
     
     case coordinates_check({Start_x,Start_y,End_x,End_y}) of 
         {ok,_} ->
-            drone_hub_wrapper:notify(create,{Start_x,Start_y,End_x,End_y}),
+            Id = drone_hub_wrapper:notify(create,{Start_x,Start_y,End_x,End_y}),
             Req = cowboy_req:reply(200, #{
                 <<"content-type">> => <<"application/json">>
-            }, jiffy:encode(#{result => ok}), Req1),
+            }, jiffy:encode(#{result => ok, id => Id}), Req1),
             {ok, Req, State};
         {Atom,false} ->
             Req = cowboy_req:reply(400, #{

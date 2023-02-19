@@ -1,0 +1,4 @@
+#!/bin/bash
+
+docker rmi elicottero:latest
+docker build -t elicottero_image:latest .

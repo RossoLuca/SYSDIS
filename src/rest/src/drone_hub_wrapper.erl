@@ -5,10 +5,11 @@
 
 
 notify(create,{Start_x,Start_y,End_x,End_y}) ->
-    %TODO CAMBIARE HOST
     {drone_hub, 'drone_hub@drone_hub_host'} ! {create, {node(),self()} ,Start_x,Start_y,End_x,End_y},
-    erlang:display({Start_x,Start_y,End_x,End_y});
-    % handle_response().
+    receive
+        {ack, Id} ->
+            Id
+    end;
     
 notify(kill,Id) ->
     {drone_hub, 'drone_hub@drone_hub_host'} ! {kill, {node(),self()} ,Id},
