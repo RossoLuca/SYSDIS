@@ -27,7 +27,7 @@ loop(IdMax) ->
                 current_y => StartY,
                 end_x => EndX,
                 end_y => EndY,
-                fallen => ""    
+                fallen => " "    
             },
             sendNewDelivery(Delivery), 
             NewIdMax = IdMax + 1,

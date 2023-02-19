@@ -9,41 +9,36 @@
 
 init( Req0=#{method := <<"POST">>}, State0 ) ->
 	{ok, Data, Req1} = cowboy_req:read_body(Req0),
-    io:format("~n~p",[?MAXSIZE]),
-    DecodedTuple = jiffy:decode( Data ),
-    erlang:display(DecodedTuple),
-	{ [	{ <<"id">>, Id },
-		{ <<"pid">>, Pid },
-		{ <<"state">>, State },
-		{ <<"start_x">>, Start_x },
-		{ <<"start_y">>, Start_y },
-		{ <<"current_x">>, Current_x },
-		{ <<"current_y">>, Current_y },
-		{ <<"end_x">>, End_x },
-		{ <<"end_y">>, End_y },
-        { <<"fallen">>, Fallen}
-    ] } = DecodedTuple, 
+    DecodedTuple = jiffy:decode( Data , [return_maps]),
 
+    Id = maps:get(<<"id">>,DecodedTuple),
+    Pid = maps:get(<<"pid">>,DecodedTuple),
+    State = maps:get(<<"state">>,DecodedTuple),
+    Start_x = maps:get(<<"start_x">>,DecodedTuple),
+    Start_y = maps:get(<<"start_y">>,DecodedTuple),
+    Current_x = maps:get(<<"current_x">>,DecodedTuple),
+    Current_y = maps:get(<<"current_y">>,DecodedTuple),
+    End_x = maps:get(<<"end_x">>,DecodedTuple),
+    End_y = maps:get(<<"end_y">>,DecodedTuple),
+    Fallen = maps:get(<<"fallen">>,DecodedTuple),
     
     Delivery = #delivery{
         id=Id,
-        pid = list_to_atom(binary_to_list(Pid)),
-        state = list_to_atom(binary_to_list(State)),
+        pid = binary_to_atom(Pid),
+        state = binary_to_atom(State),
         start_x = Start_x,
         start_y = Start_y,
         current_x = Current_x,
         current_y = Current_y,
         end_x = End_x,
         end_y = End_y,
-        fallen = binary_to_list(Fallen)
+        fallen = Fallen
     },
 
     erlang:display(Delivery),
     case delivery_check(Delivery) of
         {ok,_} ->
             {Status, Result} = mnesia_wrapper:transaction(write, delivery, Delivery),
-            io:format("~p ~n", [Status]),
-            io:format("~p ~n", [Result]),
             Req = return_req(Status,Result,Req1),
             {ok, Req, State0};
         {Errore,false} ->
