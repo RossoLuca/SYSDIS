@@ -1,6 +1,5 @@
 -module(http_utils).
 
-% -define(ENDPOINT, "localhost").
 -define(ENDPOINT, "rest_host").
 
 -export([createConnection/0, doGet/2, doPost/3]).
@@ -22,7 +21,7 @@ doGet(Connection, Path) ->
             no_data;
         {response, nofin, _Status, _Headers} ->
             {ok, Body} = gun:await_body(Connection, StreamRef),
-            jiffy:decode(Body)
+            jiffy:decode(Body, [return_maps])
     end.
 
 
@@ -36,5 +35,5 @@ doPost(Connection, Path, Data) ->
             no_data;
         {response, nofin, _Status, _Headers} ->
             {ok, ResponseBody} = gun:await_body(Connection, StreamRef),
-            jiffy:decode(ResponseBody)
+            jiffy:decode(ResponseBody, [return_maps])
     end.

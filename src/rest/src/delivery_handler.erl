@@ -35,7 +35,8 @@ init( Req0=#{method := <<"POST">>}, State0 ) ->
         fallen = Fallen
     },
 
-    erlang:display(Delivery),
+    % erlang:display(Delivery),
+    % io:format("~n~p~n", [delivery_check(Delivery)]),
     case delivery_check(Delivery) of
         {ok,_} ->
             {Status, Result} = mnesia_wrapper:transaction(write, delivery, Delivery),

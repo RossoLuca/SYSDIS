@@ -13,7 +13,9 @@ start(_Type, _Args) ->
             { "/delivery/get_active_drones",[],active_drone_handler, [ ] },         %% returns the list of all active drones
             { "/delivery/",delivery_handler, [] },   %% updates a delivery
             { "/delivery/insert",create_delivery_handler, [] },   %% Creates a new delivery
-            { "/delivery/kill",drone_kill_handler, []}
+            { "/delivery/kill",drone_kill_handler, []},
+            { "/delivery/id",ids_handler, []}
+            % ,{ "/delivery/get_adjancesies", adjancesies_handler, []}
         ]
     }],
     Dispatch = cowboy_router:compile( Routes ),

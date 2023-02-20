@@ -15,7 +15,7 @@ start(Id, Timeout, Connection) ->
 loop(Id, Timeout, Conn, OldState) -> 
     Resource = "/delivery/?id=",
     Query = Resource ++ integer_to_list(Id),
-    {Delivery} = lists:nth(1, http_utils:doGet(Conn, Query)),
+    Delivery = lists:nth(1, http_utils:doGet(Conn, Query)),
     Del = utils:toMap(Delivery),
 
     NewState = updateState(Id, OldState, Del),
@@ -32,7 +32,7 @@ loop(Id, Timeout, Conn, OldState) ->
 
 
 updateState(Id, OldState, CurrentState) ->
-    St = maps:get(stato, OldState),
+    St = maps:get(state, OldState),
     if St == unknown -> 
         %% This case happens only at the first call of this function by the watcher
         %% (i.e. when the state is unknown)
@@ -41,7 +41,7 @@ updateState(Id, OldState, CurrentState) ->
             current_y => maps:get(current_y, CurrentState),
             end_x => maps:get(end_x, CurrentState),
             end_y => maps:get(end_y, CurrentState),
-            falllen => maps:get(fallem, CurrentState)},
+            fallen => maps:get(fallen, CurrentState)},
         NewState;
     true -> 
         %% This case compare the old state with the current received from the Rest API
@@ -50,8 +50,8 @@ updateState(Id, OldState, CurrentState) ->
     end.
 
 compare(Id, Old, Current) -> 
-    Old_state = maps:get(stato, Old),
-    Current_state = maps:get(stato, Current),
+    Old_state = maps:get(state, Old),
+    Current_state = maps:get(state, Current),
 
     {New_current_x, New_current_y} = update_current_position({maps:get(current_x, Old), maps:get(current_y, Old)},
              {maps:get(current_x, Current), maps:get(current_y, Current)}),

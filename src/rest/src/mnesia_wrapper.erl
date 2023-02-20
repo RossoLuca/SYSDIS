@@ -13,8 +13,11 @@ transaction(select, Table, Spec) ->
 
 transaction(read_by_id, Table, Id) ->
     {db_listener, 'db@db_host'} ! {read_by_id, {node(), self()}, Table, Id},
-    handle_response().    
+    handle_response();    
 
+transaction(last_id, Table, _Data) -> 
+    {db_listener, 'db@db_host'} ! {last_id, {node(), self()}, Table, _Data},
+    handle_response().
 
 handle_response() ->
     receive

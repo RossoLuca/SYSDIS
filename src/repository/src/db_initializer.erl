@@ -9,4 +9,6 @@ init() ->
     mnesia:create_schema([node()]),
     mnesia:change_table_copy_type(schema, node(), disc_copies),
     mnesia:create_table(delivery,
-                        [{attributes, record_info(fields, delivery)}]).
+                        [{attributes, record_info(fields, delivery)}]),
+    mnesia:create_table(table_ids,
+                        [{attributes, record_info(fields, table_ids)}]).

@@ -15,7 +15,16 @@ loop() ->
                 true ->
                     io:format("Received write action from ~p on table ~p of ~p~n", [FromPid, Table, Data]),
                     % To be added check that Data match Table's attributes
-                    WriteFun = fun() -> mnesia:write(Data) end,
+                    WriteFun = fun() -> 
+                        Id = Data#delivery.id,
+                        Result = mnesia:read({Table, Id}),
+                        if length(Result) > 0 ->
+                            mnesia:write(Data);
+                        true -> 
+                            mnesia:dirty_update_counter(table_ids, Table, 1),
+                            mnesia:write(Data)
+                        end
+                    end,
                     {Status, Result} = execute(WriteFun),
                     FromPid ! {result, Status, Result};
                 false ->
@@ -58,6 +67,19 @@ loop() ->
                     end;
                 false ->
                     io:format("Received read by id action from ~p on table ~p that is not defined~n", [FromPid, Table]),
+                    {Status, Reason} = {aborted, table_not_exists},
+                    FromPid ! {result, Status, Reason}
+            end,
+            loop();
+        {last_id, {_FromNode, FromPid}, Table, _Data} ->
+            case check_table_exists(Table) of
+                true ->
+                    io:format("Received last id action from ~p on table ~p~n", [FromPid, Table]),
+                    Id = mnesia:dirty_update_counter(table_ids, Table, 0),
+                    {Status, Result} = {atomic, Id},
+                    FromPid ! {result, Status, Result};
+                false ->
+                    io:format("Received last id action from ~p on table ~p that is not defined~n", [FromPid, Table]),
                     {Status, Reason} = {aborted, table_not_exists},
                     FromPid ! {result, Status, Reason}
             end,

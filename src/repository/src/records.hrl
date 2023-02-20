@@ -10,3 +10,8 @@
         end_y,
         fallen
     }).
+
+-record(table_ids, {
+        table_name,
+        last_id
+    }).

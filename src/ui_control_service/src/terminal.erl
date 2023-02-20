@@ -1,6 +1,8 @@
 -module(terminal).
 
--export([insert_delivery/4, get_delivery/1, watch_delivery/2, kill_drone/1]).
+-define(WATCH_TIMEOUT, 5000).
+
+-export([insert_delivery/4, get_delivery/1, watch_delivery/2, watch_delivery/1 , kill_drone/1]).
 
 
 insert_delivery(StartX, StartY, EndX, EndY) when is_float(StartX), is_float(StartY), is_float(EndX), is_float(EndY) -> 
@@ -17,8 +19,9 @@ insert_delivery(StartX, StartY, EndX, EndY) when is_float(StartX), is_float(Star
             io:format("At the moment the delivery cannot be inserted to the system.~nTry again later!~n");
         Connection -> 
             Resource = "/delivery/insert",
-            http_utils:doPost(Connection, Resource, Delivery),
-            ok
+            Response = http_utils:doPost(Connection, Resource, Delivery),
+            Id = utils:printNewDelivery(Response),
+            Id
     end;
 
 insert_delivery(_StartX, _StartY, _EndX, _EndY) ->
@@ -33,7 +36,6 @@ get_delivery(Id) when is_integer(Id) ->
             Resource = "/delivery/?id=",
             Query = Resource ++ integer_to_list(Id),
             Response = http_utils:doGet(Connection, Query),
-
             case length(Response) of
                 0 -> 
                     io:format("Delivery with ID ~p not found! ~n", [Id]);
@@ -57,6 +59,11 @@ watch_delivery(Id, Timeout) when is_integer(Timeout), is_integer(Id) ->
 
 watch_delivery(_Id, _Timeout) ->
     io:format("Id and Timeout must both be integer!~n").
+
+
+watch_delivery(Id) ->
+    watch_delivery(Id, ?WATCH_TIMEOUT).
+
 
 kill_drone(Id) when is_integer(Id) -> 
     case http_utils:createConnection() of
