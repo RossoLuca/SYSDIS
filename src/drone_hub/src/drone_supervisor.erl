@@ -99,6 +99,7 @@ getLastId() ->
     Conn = http_utils:createConnection(),
     Resource = "/delivery/id",
     Response = http_utils:doGet(Conn, Resource),
+    erlang:display(Response),
     Info = binary_to_atom(maps:get(<<"info">>, Response)),
     case Info of
         success ->
