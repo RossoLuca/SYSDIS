@@ -1,6 +1,12 @@
 -module(drone_supervisor).
 
--export([start_link/0, init/0, loop/3, spawnDrone/1, spawnLocalDrone/1]).
+-export([start_link/0, init/0, loop/3, spawnDrone/1, spawnLocalDrone/1, agreementPolicy/0]).
+
+% Velocity is expressed in m/s
+-define(VELOCITY, 1.0).
+
+% Defines the size of the bounding box surrounding each drone
+-define(DRONE_SIZE, 1.0).
 
 start_link() ->
     Pid = spawn_link(?MODULE, init, []),
@@ -51,6 +57,18 @@ loop(IdMax, Spawned, MonitoredDrones) ->
             NewSpawned = maps:remove(Id, Spawned),
 
             erlang:monitor(process, FromPid),
+
+            StartX = maps:get(start_x, Delivery),
+            StartY = maps:get(start_y, Delivery),
+            EndX = maps:get(end_x, Delivery),
+            EndY = maps:get(end_y, Delivery),
+            State = maps:get(state, Delivery),
+            Fallen = maps:get(fallen, Delivery),
+            RecoveryFlag = false,
+            Policy = fun() -> agreementPolicy() end,
+            
+            FromPid ! {config, ?VELOCITY, ?DRONE_SIZE, Policy, RecoveryFlag, {StartX, StartY}, {EndX, EndY}, State, Fallen},
+
             NewMonitoredDrones = maps:put(FromPid, Id, MonitoredDrones),
             io:format("~w ~n", [NewMonitoredDrones]),
             loop(IdMax, NewSpawned, NewMonitoredDrones); 
@@ -71,7 +89,8 @@ loop(IdMax, Spawned, MonitoredDrones) ->
 sendNewDelivery(Delivery) ->
     Conn = http_utils:createConnection(),
     Resource = "/delivery/",
-    _Response = http_utils:doPost(Conn, Resource, Delivery),
+    Response = http_utils:doPost(Conn, Resource, Delivery),
+    io:format("Response: ~p~n", [Response]),
     ok.
 
 
@@ -99,7 +118,6 @@ getLastId() ->
     Conn = http_utils:createConnection(),
     Resource = "/delivery/id",
     Response = http_utils:doGet(Conn, Resource),
-    erlang:display(Response),
     Info = binary_to_atom(maps:get(<<"info">>, Response)),
     case Info of
         success ->
@@ -110,3 +128,7 @@ getLastId() ->
             io:format("Drone hub will be restarted for another attempt.~n"),
             exit(self(), rest_connection_error)
     end.
+
+%% TODO
+agreementPolicy() ->
+    ok.

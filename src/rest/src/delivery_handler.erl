@@ -98,7 +98,7 @@ delivery_check(Del) ->
     Start_y = Del#delivery.start_y,
     End_y = Del#delivery.end_y,
     case {Id,Start_x,End_x,Start_y,End_y} of
-        {Id,_,_,_,_} when Id =< 0 ->
+        {Id,_,_,_,_} when Id < 0 ->
             {iderror,false};
         {_,Start_x,End_x,Start_y,End_y} when Start_x < 0; Start_y < 0;End_x < 0 ; End_y < 0 ->
             {coordinateserror,false};
