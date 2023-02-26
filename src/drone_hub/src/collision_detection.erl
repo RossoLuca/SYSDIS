@@ -272,7 +272,7 @@ axes_overlap(DroneSize, A_s, A_e, B_s, B_e) ->
     ToBeAdded = DroneSize / 2,
     {LeftA, RightA} = order(A_s, A_e),
     {LeftB, RightB} = order(B_s, B_e),
-    if (LeftB - ToBeAdded) >= (LeftA - ToBeAdded), (LeftA - ToBeAdded) =< (RightA + ToBeAdded) ->
+    if (LeftB - ToBeAdded) >= (LeftA - ToBeAdded), (RightB - ToBeAdded) =< (RightA + ToBeAdded) ->
         1;
     (RightB + ToBeAdded) >= (LeftA - ToBeAdded), (LeftB - ToBeAdded) =< (RightA + ToBeAdded) ->
         1;

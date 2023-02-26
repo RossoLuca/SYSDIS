@@ -1,12 +1,14 @@
 -module(drone_supervisor).
 
--export([start_link/0, init/0, loop/3, spawnDrone/1, spawnLocalDrone/1, agreementPolicy/0]).
+-export([start_link/0, init/0, loop/3, spawnDrone/1, spawnLocalDrone/1, agreementPolicy/1]).
 
 % Velocity is expressed in m/s
 -define(VELOCITY, 1.0).
 
 % Defines the size of the bounding box surrounding each drone
 -define(DRONE_SIZE, 1.0).
+
+-define(ACK_THRESHOLD, 4).
 
 start_link() ->
     Pid = spawn_link(?MODULE, init, []),
@@ -65,7 +67,7 @@ loop(IdMax, Spawned, MonitoredDrones) ->
             State = maps:get(state, Delivery),
             Fallen = maps:get(fallen, Delivery),
             RecoveryFlag = false,
-            Policy = fun() -> agreementPolicy() end,
+            Policy = fun(CollisionTable) -> agreementPolicy(CollisionTable) end,
             
             FromPid ! {config, ?VELOCITY, ?DRONE_SIZE, Policy, RecoveryFlag, {StartX, StartY}, {EndX, EndY}, State, Fallen},
 
@@ -130,5 +132,51 @@ getLastId() ->
     end.
 
 %% TODO
-agreementPolicy() ->
-    ok.
+agreementPolicy(CollisionTable) ->
+    FirstRule = maps:fold(fun(K, V, AccIn) ->
+                State = maps:get(state, V),
+                if State == flying ->
+                    AccOut = [K | AccIn],
+                    AccOut;
+                true ->
+                    AccIn
+                end
+    end, [], CollisionTable),
+    FirstRuleOrdered = lists:sort(FirstRule),
+    TableAfterFirstRule = lists:foldl(fun(K, Acc) -> 
+                            Out = maps:remove(K, Acc),
+                            Out
+                    end, CollisionTable, FirstRuleOrdered),
+    SecondRule = maps:fold(fun(K, V, AccIn) ->
+                        Count = length(maps:get(ack_count, V)),
+                        if Count > ?ACK_THRESHOLD ->
+                            AccOut = [K | AccIn],
+                            AccOut;
+                        true ->
+                            AccIn
+                        end
+                    end, [], TableAfterFirstRule),
+    SecondRuleOrdered = lists:sort(SecondRule),
+    TableAfterSecondRule = lists:foldl(fun(K, Acc) -> 
+                            Out = maps:remove(K, Acc),
+                            Out
+                    end, TableAfterFirstRule, SecondRuleOrdered),
+    ThirdRuleOrdered = lists:sort(fun({A, MapA}, {B, MapB}) ->
+                    CollisionA = length(maps:get(collisions, MapA)),
+                    CollisionB = length(maps:get(collisions, MapB)),
+                    if CollisionA < CollisionB ->
+                        true;
+                    CollisionA == CollisionB ->
+                        if A < B ->
+                            true;
+                        true ->
+                            false
+                        end;
+                    true ->
+                        false
+                    end
+        end, maps:to_list(TableAfterSecondRule)),
+    ThirdRuleIds = lists:map(fun({K, _V}) -> K end, ThirdRuleOrdered),
+    TotalOrdering = lists:append(FirstRuleOrdered, lists:append(SecondRuleOrdered, ThirdRuleIds)),
+    TotalOrdering.
+
