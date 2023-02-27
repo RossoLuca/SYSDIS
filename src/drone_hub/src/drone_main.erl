@@ -19,7 +19,7 @@ init(Id) ->
         connection_timed_out ->
             io:format("Warning Rest service not reachable");
         Connection ->
-            Resource = "/delivery/get_active_drones",
+            Resource = "/delivery/get_active_drones/?fields=id,pid",
             Response = http_utils:doGet(Connection, Resource),
 
             Acc = #{}, 
@@ -42,19 +42,27 @@ init(Id) ->
             NewDrones = #{},
             PersonalCollisions = #{},
             
+            %% TODO: verificare se si deve fare diversamente nel caso di drone con flag recovery == true
+            %% We need to send synchronization request only to drones with a smaller Id.
+            FilteredSynchronizationMap = maps:filter(fun(K, _V) -> 
+                                        if K < Id -> 
+                                            true;
+                                        true ->
+                                            false
+                                        end
+                            end, SynchronizationMap),
 
-            io:format("Drone ~p ---> ~p~n", [Id, SynchronizationMap]),
-
-            Size = maps:size(SynchronizationMap),
+            Size = maps:size(FilteredSynchronizationMap),
             if Size > 0 ->
                 CollisionTable = #{},
                 Message = {sync_hello, self(), Id},
 
+                io:format("Drone ~p --> FilteredSynchronizationMap: ~p~n", [Id, FilteredSynchronizationMap]),
                 maps:foreach(fun(External_Id, Entry) ->
                                     External_Pid = maps:get(pid, Entry),
                                     spawn(drone_main, drone_synchronizer, [Id, self(), maps:get(drone_size, Configuration), Route, External_Id, External_Pid, 0, Message])
-                            end, SynchronizationMap),
-                sync_loop(Id, Configuration, DroneState, CollisionTable, SynchronizationMap, NewDrones, PersonalCollisions);
+                            end, FilteredSynchronizationMap),
+                sync_loop(Id, Configuration, DroneState, CollisionTable, FilteredSynchronizationMap, NewDrones, PersonalCollisions);
             true ->
                 CollisionTable = #{
                         Id => #{ack_count => [], collisions => [], state => pending}
@@ -87,11 +95,11 @@ drone_synchronizer(Id, Pid, DroneSize, Route, External_Id, External_Pid, Retry_c
     External_Pid ! {sync_hello, self(), Id},
     io:format("Drone ~p --> Sent sync_hello message to drone ~p~n", [Id, External_Id]),
     receive
-        {sync_routes, External_Id, External_Pid, Start, End, _State, _Ack_count} ->
+        {sync_routes, External_Pid, External_Id, Start, End, _State, _Ack_count} ->
             io:format("Drone ~p --> Received sync_routes message from drone ~p~n", [Id, External_Id]),
             {Collision_response, Collision_points} = collision_detection:compute_collision(DroneSize, Id, Route, External_Id, {Start, End}),
             io:format("Drone ~p --> Computed collision with drone ~p: ~p; ~p~n", [Id, External_Id, Collision_response, Collision_points]),
-            Pid ! {collision_response, External_Id, External_Pid, Collision_response, Collision_points}
+            Pid ! {collision_response, External_Pid, External_Id, Collision_response, Collision_points}
         after 3000 ->
             if Retry_count > ?RETRY_LIMIT ->
                 case http_utils:createConnection() of
@@ -101,11 +109,18 @@ drone_synchronizer(Id, Pid, DroneSize, Route, External_Id, External_Pid, Retry_c
                         Resource = "/delivery/?id=",
                         Query = Resource ++ integer_to_list(External_Id),
                         Response = http_utils:doGet(Connection, Query),
-                        %% TODO: verificare che lo stato della delivery non sia completed
-                        %% se è completed il sync con il drone corrispondennte si può considerare concluso
-                        %% TODO: modificare modo in cui si accede al nuovo pid (questo da un errore)
-                        New_pid = maps:get(<<"pid">>, lists:nth(1,Response)),
-                        drone_synchronizer(Id, Pid, DroneSize, Route, External_Id, New_pid, 0, Message)
+                        
+                        ExternalDroneState = binary_to_atom(maps:get(<<"state">>, lists:nth(1, Response))),
+                    
+                        if ExternalDroneState == completed ->
+                            %% Since the external drone as already completed its delivery, we can assume that a collision
+                            %% cannot happen with it
+                            Pid ! {collision_response, External_Pid, External_Id, no_collision, none};
+                        true ->
+                            %% This case means that the external drone is fall after my call of /get_active_drones/ to the Rest API
+                            New_pid = list_to_pid(binary_to_list(maps:get(<<"pid">>, lists:nth(1,Response)))),
+                            drone_synchronizer(Id, Pid, DroneSize, Route, External_Id, New_pid, 0, Message)
+                        end
                 end;
             true ->
                 drone_synchronizer(Id, Pid, DroneSize, Route, External_Id, External_Pid, Retry_count + 1, Message)
@@ -113,10 +128,11 @@ drone_synchronizer(Id, Pid, DroneSize, Route, External_Id, External_Pid, Retry_c
     end.
 
 
-% %% ALL THE BUSINESS LOGIC
+
 sync_loop(Id, Configuration, DroneState, CollisionTable, SynchronizationMap, NewDrones, PersonalCollisions) ->
     receive
-        {collision_response, External_Id, External_Pid, Collision_response, Collision_points} ->
+        {collision_response, External_Pid, External_Id, Collision_response, Collision_points} ->
+            io:format("Drone ~p --> Received collision_response from drone_synchronizer process about collision with drone ~p on pid ~p~n", [Id, External_Id, External_Pid]),
             External_Pid ! {sync_result, self(), Id, Collision_response, Collision_points},
             
             TmpMap = maps:get(External_Id, SynchronizationMap),
@@ -162,7 +178,8 @@ sync_loop(Id, Configuration, DroneState, CollisionTable, SynchronizationMap, New
                 
                 %% In the sync phase the update_table message is sent only when all the drone synchronizer process
                 %% have terminated
-                send_update_table(Id, PersonalCollisions, DroneState),
+                io:format("Drone ~p --> Sending update table in sync_loop with this PersonalCollision: ~p~n", [Id, NewPersonalCollisions]),
+                send_update_table(Id, NewPersonalCollisions, DroneState),
                 
                 % FilteredMap = maps:filter(fun(_K, V) ->
                 %                     Flag = maps:get(received_table, V),
@@ -216,7 +233,7 @@ sync_loop(Id, Configuration, DroneState, CollisionTable, SynchronizationMap, New
             End = maps:get(route_end, Configuration),
             State = maps:get(state, DroneState),
             Ack_count = maps:get(ack_count, DroneState),
-            FromPid ! {sync_routes, Id, self(), Start, End, State, Ack_count},
+            FromPid ! {sync_routes, self(), Id, Start, End, State, Ack_count},
             sync_loop(Id, Configuration, DroneState, CollisionTable, SynchronizationMap, maps:put(FromId, FromPid, NewDrones), PersonalCollisions);
 
         {sync_result, FromPid, FromId, Collision_response, Collision_points} ->
@@ -253,16 +270,15 @@ agreement_loop(Id, Configuration, DroneState, CollisionTable, NewDrones, Persona
     io:format("Drone ~p --> Ordering: ~p~n", [Id, Ordering]),
     [Head | _Tail] = Ordering,
     if Head == Id ->
-        %% Start fly
-        %% io:format("Drone ~p --> Start to fly~n", [Id]);
-        on_waiting_notify(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions);
+        on_waiting_notify:handle_state(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions);
     true ->
         ToBeNotified = create_notify_buffer(Ordering, CollisionTable),
         io:format("Drone ~p --> ToBeNotified: ~p~n", [Id, ToBeNotified]),
         send_notify(Id, ToBeNotified, PersonalCollisions),
-        on_waiting_ack(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions, ToBeNotified)
+        on_waiting_ack:handle_state(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions, ToBeNotified)
     end,
 
+    io:format("Drone ~p --> After if in agreement_loop~n", [Id]),
     receive
         {sync_hello, FromPid, FromId} ->
             io:format("Drone ~p --> Received sync_hello message from drone ~p~n", [Id, FromId]),
@@ -272,13 +288,14 @@ agreement_loop(Id, Configuration, DroneState, CollisionTable, NewDrones, Persona
             State = maps:get(state, DroneState),
             Ack_count = maps:get(ack_count, DroneState),
             
-            FromPid ! {sync_routes, Id, self(), Start, End, State, Ack_count},
+            FromPid ! {sync_routes, self(), Id, Start, End, State, Ack_count},
             agreement_loop(Id, Configuration, DroneState, CollisionTable, maps:put(FromId, FromPid, NewDrones), PersonalCollisions);
         
         {sync_result, FromPid, FromId, Collision_response, Collision_points} ->
             NewPersonalCollisions = update_personal_collisions(Collision_response, FromId, FromPid, Collision_points, PersonalCollisions),
                                  
             if Collision_response == collision ->
+                io:format("Drone ~p --> Sending update table in agreement_loop~n", [Id]),
                 send_update_table(Id, NewPersonalCollisions, DroneState),
                 agreement_loop(Id, Configuration, DroneState, CollisionTable, NewDrones, NewPersonalCollisions);
             true -> 
@@ -309,6 +326,8 @@ send_update_table(Id, PersonalCollisions, DroneState) ->
             CollidingDrones = maps:keys(PersonalCollisions),
             State = maps:get(state, DroneState),
             Ack_count = maps:get(ack_count, DroneState),
+            io:format("Drone ~p --> External_Pid ~p~n", [Id, External_Pid]),
+            io:format("Drone ~p --> CollidingDrones ~p~n", [Id, CollidingDrones]),
             External_Pid ! {update_table, self(), Id, CollidingDrones, State, Ack_count},
 
             io:format("Drone ~p --> Sent update_table message to drone ~p~n", [Id, External_Id])        
@@ -333,25 +352,7 @@ go_to_agreement(SynchronizationMap, Id) ->
         end 
         end, NewSynchronizationMap),
     Size = maps:size(FilteredMap),
-    {NewSynchronizationMap, Size}.
-
-on_waiting_notify(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions) ->
-    WaitingFrom = maps:get(collisions, maps:get(Id, CollisionTable)),
-    Size = length(WaitingFrom),
-    if Size == 0 ->
-        flying(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions);
-    true ->
-        io:format("Drone ~p --> Waiting notify messages from ~p~n", [Id, WaitingFrom])
-        %% TODO: Da mettere il receive dei notify
-
-
-    end.
-
-on_waiting_ack(Id, _Configuration, _DroneState, _CollisionTable, _NewDrones, _PersonalCollisions, Notified) ->
-    io:format("Drone ~p --> Waiting ack messages from drones: ~p~n", [Id, Notified]).
-
-flying(Id, _Configuration, _DroneState, _CollisionTable, _NewDrones, _PersonalCollisions) ->
-    io:format("Drone ~p --> Started to fly~n", [Id]).
+    {NewSynchronizationMap, Size}.    
 
 create_notify_buffer(Ordering, CollisionTable) ->
     AccOut = lists:foldl(fun(T, AccIn) ->

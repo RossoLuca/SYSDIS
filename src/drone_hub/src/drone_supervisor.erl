@@ -21,10 +21,11 @@ init() ->
     receive
         after 2000 -> ok
     end,
-    IdMax = getLastId(),
+    {Conn, IdMax} = getLastId(),
     SpawnedDrones = #{},
     MonitoredDrones = #{},
-    loop(IdMax, SpawnedDrones, MonitoredDrones).
+    SpawnedAfterRestore = restoreEnvironment(Conn, SpawnedDrones, MonitoredDrones),
+    loop(IdMax, SpawnedAfterRestore, MonitoredDrones).
 
 loop(IdMax, Spawned, MonitoredDrones) ->
     receive
@@ -107,8 +108,6 @@ spawnDrone(Id) ->
                     " --net " ++ Network ++ " " ++ Image,
     _StdOut = os:cmd(Command).
 
-
-
 % spawnLocalDrone si può usare per spawnare i droni in locale per testing
 % spawnDrone si può usare per spawanare ogni drone su container diversi
 
@@ -124,14 +123,45 @@ getLastId() ->
     case Info of
         success ->
             IdMax = maps:get(<<"result">>, Response),
-            IdMax;
+            {Conn, IdMax};
         _ ->
             io:format("Error during attempt to get info from the Rest.~n"),
             io:format("Drone hub will be restarted for another attempt.~n"),
             exit(self(), rest_connection_error)
     end.
 
-%% TODO
+restoreEnvironment(Conn, Spawned, _Monitored) ->
+    Resource = "/delivery/get_active_drones",
+    Response = http_utils:doGet(Conn, Resource),
+    
+    NewSpawned = lists:foldl(fun(Drone, AccIn) ->
+            AccOut = restoreDrone(Drone, AccIn),
+            AccOut
+        end, Spawned, Response),
+    NewSpawned.
+
+restoreDrone(Drone, Spawned) ->
+    Id = maps:get(<<"id">>, Drone),
+    DEV_MODE = list_to_atom(os:getenv("DEV_MODE", "false")),
+    if DEV_MODE == true ->
+        spawnLocalDrone(Id);
+    true ->
+        spawn(?MODULE, spawnDrone, [Id])
+    end,
+    Delivery = #{
+        id => Id,
+        state => binary_to_atom(maps:get(<<"state">>, Drone)),
+        start_x => maps:get(<<"current_x">>, Drone),
+        start_y => maps:get(<<"current_y">>, Drone),
+        current_x => maps:get(<<"current_x">>, Drone),
+        current_y => maps:get(<<"current_y">>, Drone),
+        end_x => maps:get(<<"end_x">>, Drone),
+        end_y => maps:get(<<"end_y">>, Drone),
+        fallen => maps:get(<<"fallen">>, Drone)    
+    },
+    NewSpawned = maps:put(Id, Delivery, Spawned),
+    NewSpawned.
+
 agreementPolicy(CollisionTable) ->
     FirstRule = maps:fold(fun(K, V, AccIn) ->
                 State = maps:get(state, V),
@@ -179,4 +209,3 @@ agreementPolicy(CollisionTable) ->
     ThirdRuleIds = lists:map(fun({K, _V}) -> K end, ThirdRuleOrdered),
     TotalOrdering = lists:append(FirstRuleOrdered, lists:append(SecondRuleOrdered, ThirdRuleIds)),
     TotalOrdering.
-
