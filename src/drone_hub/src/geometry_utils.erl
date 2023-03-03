@@ -1,7 +1,8 @@
 -module(geometry_utils).
 
 -export([distancePointPoint/2, get_perpendicular_line/2, compute_perpendicular_intersection/2,
-        check_intersection/2, check_parallel/2, distancePointLine/2, equation_coeffs/2]).
+        check_intersection/2, check_parallel/2, distancePointLine/2, equation_coeffs/2,
+        get_intersection_point/2]).
 
 
 check_intersection({A, B}, {C, D}) ->

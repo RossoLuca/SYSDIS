@@ -1,9 +1,9 @@
 -module(drone_supervisor).
 
--export([start_link/0, init/0, loop/3, spawnDrone/1, spawnLocalDrone/1, agreementPolicy/1]).
+-export([start_link/0, init/0, loop/4, spawnDrone/1, spawnLocalDrone/1, agreementPolicy/1]).
 
 % Velocity is expressed in m/s
--define(VELOCITY, 1.0).
+-define(VELOCITY, 2.0).
 
 % Defines the size of the bounding box surrounding each drone
 -define(DRONE_SIZE, 1.0).
@@ -24,10 +24,11 @@ init() ->
     {Conn, IdMax} = getLastId(),
     SpawnedDrones = #{},
     MonitoredDrones = #{},
+    Pid_to_Id = #{},
     SpawnedAfterRestore = restoreEnvironment(Conn, SpawnedDrones, MonitoredDrones),
-    loop(IdMax, SpawnedAfterRestore, MonitoredDrones).
+    loop(IdMax, SpawnedAfterRestore, MonitoredDrones, Pid_to_Id).
 
-loop(IdMax, Spawned, MonitoredDrones) ->
+loop(IdMax, Spawned, MonitoredDrones, Pid_to_Id) ->
     receive
         {create, {_FromNode, FromPid}, StartX, StartY, EndX, EndY} ->
             io:format("Received a request of spawning a new drone from the Rest API~n"),
@@ -51,7 +52,7 @@ loop(IdMax, Spawned, MonitoredDrones) ->
             },
             NewIdMax = IdMax + 1,
             NewSpawned = maps:put(IdMax, Delivery, Spawned),
-            loop(NewIdMax, NewSpawned, MonitoredDrones);
+            loop(NewIdMax, NewSpawned, MonitoredDrones, Pid_to_Id);
         {link, {_FromNode, FromPid}, Id} ->
             io:format("Received link from drone ~p with Pid ~p ~n", [Id, FromPid]),
             Delivery = maps:get(Id, Spawned),
@@ -73,20 +74,26 @@ loop(IdMax, Spawned, MonitoredDrones) ->
             FromPid ! {config, ?VELOCITY, ?DRONE_SIZE, Policy, RecoveryFlag, {StartX, StartY}, {EndX, EndY}, State, Fallen},
 
             NewMonitoredDrones = maps:put(FromPid, Id, MonitoredDrones),
-            io:format("~w ~n", [NewMonitoredDrones]),
-            loop(IdMax, NewSpawned, NewMonitoredDrones); 
-        {'DOWN', _Ref, process, FromPid, _Reason} ->
+            loop(IdMax, NewSpawned, NewMonitoredDrones, Pid_to_Id); 
+        {'DOWN', _Ref, process, FromPid, Reason} ->
             %% TO BE IMPLEMENTED: 
             %% Fault of a drones -> spawn of the new drone
-            Id = maps:get(FromPid, MonitoredDrones),
-            io:format("Drone ~p crashed.~n A new drone will be spawned to complete its delivery.~n", [Id]),
-            loop(IdMax, Spawned, MonitoredDrones);
+            if Reason =/= normal ->
+                Id = maps:get(FromPid, MonitoredDrones),
+                io:format("Drone ~p crashed.~n A new drone will be spawned to complete its delivery.~n", [Id]),
+                loop(IdMax, Spawned, MonitoredDrones, Pid_to_Id);
+            true ->
+                DroneId = maps:get(FromPid, MonitoredDrones),
+                io:format("Drone ~p --> Completed its task~n", [DroneId]),
+                NewMonitoredDrones = maps:remove(DroneId, MonitoredDrones),
+                loop(IdMax, Spawned, NewMonitoredDrones, Pid_to_Id)
+            end;
         {kill, {_FromNode, _FromPid}, Id} ->
             %% TO BE IMPLEMENTED
             io:format("Received a request of kill drone with ID ~p, from the Rest API~n", [Id]),
-            loop(IdMax, Spawned, MonitoredDrones);
+            loop(IdMax, Spawned, MonitoredDrones, Pid_to_Id);
         _ ->
-            loop(IdMax, Spawned, MonitoredDrones)
+            loop(IdMax, Spawned, MonitoredDrones, Pid_to_Id)
     end.
 
 sendNewDelivery(Delivery) ->
