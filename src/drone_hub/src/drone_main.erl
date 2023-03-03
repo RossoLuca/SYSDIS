@@ -1,6 +1,6 @@
 -module(drone_main).
 -define(RETRY_LIMIT,2).
--export([start_link/0, init/1, drone_synchronizer/8, update_personal_collisions/5, send_update_table/3, agreement_loop/6]).
+-export([start_link/0, init/1, drone_synchronizer/8, update_personal_collisions/5, send_update_table/3, agreement_loop/6, get_route_start/1]).
 
 start_link() ->
     Id = list_to_integer(os:getenv("ID")),
@@ -16,7 +16,7 @@ init(Id) ->
 
     io:format("Drone ~p started~n", [Id]),
 
-    Route = {maps:get(route_start, Configuration), maps:get(route_end, Configuration)},
+    Route = {get_route_start(Configuration), maps:get(route_end, Configuration)},
     case http_utils:createConnection() of
         connection_timed_out ->
             io:format("Warning Rest service not reachable");
@@ -49,15 +49,25 @@ init(Id) ->
             PersonalCollisions = #{},
             NewDrones = #{},
             
-            %% TODO: verificare se si deve fare diversamente nel caso di drone con flag recovery == true
             %% We need to send synchronization request only to drones with a smaller Id.
-            FilteredSynchronizationMap = maps:filter(fun(K, _V) -> 
-                                        if K < Id -> 
-                                            true;
-                                        true ->
-                                            false
-                                        end
-                            end, SynchronizationMap),
+            %% If a drone is a recovery drone, its synchronization map contains all the drones but not him
+            IsRecovery = maps:get(recovery, Configuration),
+            FilteredSynchronizationMap = if IsRecovery =/= true ->
+                                                maps:filter(fun(K, _V) -> 
+                                                        if K < Id -> 
+                                                            true;
+                                                        true ->
+                                                            false
+                                                        end
+                                            end, SynchronizationMap);
+                                        true -> maps:filter(fun(K, _V) -> 
+                                                        if K =/= Id -> 
+                                                            true;
+                                                        true ->
+                                                            false
+                                                        end
+                                            end, SynchronizationMap)
+                                        end,
 
             Size = maps:size(FilteredSynchronizationMap),
             if Size > 0 ->
@@ -80,10 +90,12 @@ init(Id) ->
 
 receive_configuration() ->
     receive
-        {config, Velocity, Drone_size, Policy, Recovery, Start, End, State, Fallen} ->
+        {config, Velocity, Drone_size, Policy, Recovery, Height, Start, Current, End, State, Fallen} ->
             Config = #{
+                height => Height,
                 route_start => Start,
                 route_end => End,
+                recovery_start => Current,
                 velocity => Velocity,
                 drone_size => Drone_size,
                 policy => Policy,
@@ -189,7 +201,7 @@ sync_loop(Id, Configuration, DroneState, CollisionTable, SynchronizationMap, New
 
         {sync_hello, FromPid, FromId, FromRoute} ->
             io:format("Drone ~p --> Received sync_hello message from drone ~p~n to compute collision computation", [Id, FromId]),
-            MyStart = maps:get(route_start, Configuration),
+            MyStart = get_route_start(Configuration),
             MyEnd = maps:get(route_end, Configuration),
             DroneSize = maps:get(drone_size, Configuration),
 
@@ -330,4 +342,11 @@ go_to_agreement(CollisionTable, SynchronizationMap) ->
                             end
                         end, true, FilteredMap),
     ReceivedAll.
-    
+
+get_route_start(Configuration) ->
+    Recovery = maps:get(recovery, Configuration),
+    if Recovery == true ->
+        maps:get(recovery_start, Configuration);
+    true ->
+        maps:get(route_start, Configuration)
+    end.

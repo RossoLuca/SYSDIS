@@ -10,7 +10,7 @@ handle_state(Id, Configuration, DroneState, CurrentPosition, CollisionTable, New
                 %% updates its PersonalCollisions (in case of collision), returns the sync_result to the other drone, but continue to remain in the
                 %% same state
                
-                MyStart = maps:get(route_start, Configuration),
+                MyStart = drone_main:get_route_start(Configuration),
                 MyEnd = maps:get(route_end, Configuration),
                 DroneSize = maps:get(drone_size, Configuration),
 
@@ -54,7 +54,7 @@ handle_state(Id, Configuration, DroneState, CurrentPosition, CollisionTable, New
                     %% has already been passed
                     %% Cannot be used compute_collision function to check this because it need also the route (start, end) of other drone which
                     %% we don't have
-                    Start = maps:get(route_start, Configuration),
+                    Start = drone_main:get_route_start(Configuration),
                     End = maps:get(route_end, Configuration),
                     DroneSize = maps:get(drone_size, Configuration),
                     IntersectionPoint = maps:get(Id, maps:get(points, maps:get(FromId, PersonalCollisions))), 
@@ -101,7 +101,7 @@ handle_state(Id, Configuration, DroneState, CurrentPosition, CollisionTable, New
                 %% TODO: Think about it
                 handle_state(Id, Configuration, DroneState, CurrentPosition, CollisionTable, NewDrones, PersonalCollisions, ToBeAcked, FlyingProcessPid, RestConnection);
             true ->
-                Start = maps:get(route_start, Configuration),
+                Start = drone_main:get_route_start(Configuration),
                 End = maps:get(route_end, Configuration),
                 DroneSize = maps:get(drone_size, Configuration),
                 IntersectionPoint = maps:get(Id, maps:get(points, maps:get(FromId, PersonalCollisions))), 
@@ -124,6 +124,13 @@ handle_state(Id, Configuration, DroneState, CurrentPosition, CollisionTable, New
         {update_position, _, _, New_x, New_y, Real_x, Real_y, Type} ->
             io:format("Drone ~p --> Arrived at point (~p, ~p) of type ~p~n", [Id, Real_x, Real_y, Type]),
             Resource = "/delivery/",
+
+            if Type == taking_off ->
+                io:format("Drone ~p --> Reached height of fly~n", [Id]);
+            Type == landing ->
+                io:format("Drone ~p --> Landed on the ground~n", [Id]);
+            true -> ok
+            end,
 
             {Start_x, Start_y} = maps:get(route_start, Configuration),
             {End_x, End_y} = maps:get(route_end, Configuration),

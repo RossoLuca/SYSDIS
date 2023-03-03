@@ -72,9 +72,9 @@ kill_drone(Id) when is_integer(Id) ->
         Connection ->
             Resource = "/delivery/kill/?id=",
             Query = Resource ++ integer_to_list(Id),
-            http_utils:doGet(Connection, Query),
-            io:format("Delivery with ID ~p killed! ~n", [Id])   
-            
+            Response = http_utils:doGet(Connection, Query),
+            % io:format("Delivery with ID ~p killed! ~n", [Id])
+            io:format("~p", [Response])
     end;
 kill_drone(_) ->
     io:format("Id must be integer!~n").

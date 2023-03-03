@@ -9,7 +9,7 @@ handle_state(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalC
             io:format("Drone ~p --> Received sync_hello message from drone ~p~n to compute collision computation~n", [Id, FromMainPid]),
             
             DroneSize = maps:get(drone_size, Configuration),
-            MyStart = maps:get(route_start, Configuration),
+            MyStart = drone_main:get_route_start(Configuration),
             MyEnd = maps:get(route_end, Configuration),
             
             {Collision_response, Collision_points} = collision_detection:compute_collision(DroneSize, Id, {MyStart, MyEnd}, FromId, FromRoute),

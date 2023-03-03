@@ -8,7 +8,7 @@ handle_state(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalC
     SizeWaitingFrom = length(WaitingFrom),
     SizeToBeAcked = length(ToBeAcked),
     if SizeWaitingFrom == SizeToBeAcked ->
-        CurrentPosition = maps:get(route_start, Configuration),
+        CurrentPosition = drone_main:get_route_start(Configuration),
         NewCollisionTable = applyBufferedUpdate(Id, UpdateTableBuffer, CollisionTable, PersonalCollisions),
         {NewDroneState, UpdatedCollisionTable} = change_state(Id, flying, DroneState, NewCollisionTable),
         FlyingProcessPid = spawnFlightProcess(Id, Configuration, PersonalCollisions, ToBeAcked),
@@ -25,7 +25,7 @@ handle_state(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalC
                 %% same state
 
                 io:format("Drone ~p --> Received sync_hello message from drone ~p~n to compute collision computation", [Id, FromMainPid]),
-                MyStart = maps:get(route_start, Configuration),
+                MyStart = drone_main:get_route_start(Configuration),
                 MyEnd = maps:get(route_end, Configuration),
                 DroneSize = maps:get(drone_size, Configuration),
 
@@ -103,7 +103,8 @@ applyBufferedUpdate(Id, UpdateTableBuffer, CollisionTable, PersonalCollisions) -
 
 
 spawnFlightProcess(Id, Configuration, PersonalCollisions, ToBeAcked) ->
-    Start = maps:get(route_start, Configuration),
+    Height = maps:get(height, Configuration),
+    Start = drone_main:get_route_start(Configuration),
     End = maps:get(route_end, Configuration),
     Velocity = maps:get(velocity, Configuration),
     DroneSize = maps:get(drone_size, Configuration),
@@ -112,7 +113,7 @@ spawnFlightProcess(Id, Configuration, PersonalCollisions, ToBeAcked) ->
                                         P
                         end, ToBeAcked),
     io:format("Drone ~p --> PointsToBeAcked: ~p~n", [Id, PointsToBeAcked]),
-    Pid = spawn_link(flight, init, [Id, Start, End, Velocity, DroneSize, PointsToBeAcked, self()]),
+    Pid = spawn_link(flight, init, [Id, Height, Start, End, Velocity, DroneSize, PointsToBeAcked, self()]),
     io:format("Drone ~p --> Flight process spawned with pid: ~p~n", [Id, Pid]),
     Pid.
 

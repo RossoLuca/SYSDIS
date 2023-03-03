@@ -13,7 +13,7 @@ notify(create,{Start_x,Start_y,End_x,End_y}) ->
     
 notify(kill,Id) ->
     {drone_hub, 'drone_hub@drone_hub_host'} ! {kill, {node(),self()} ,Id},
-    erlang:display(Id).
-    % handle_response().
-
-% handle_response() -> SOME KIND OF FUNCTION
+    receive
+        {success, Id} -> Id;
+        {error, Response} -> Response
+    end.

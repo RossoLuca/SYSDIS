@@ -15,11 +15,19 @@ init( Req0=#{method := <<"GET">>}, State ) ->
                             end
                         end, AtomQs) of
         {value, {id, Id}} -> 
-            drone_hub_wrapper:notify(kill,Id),
-            Req = cowboy_req:reply(200, #{
-                <<"content-type">> => <<"application/json">>
-            }, jiffy:encode(#{result => ok}), Req0),
-            {ok, Req, State};
+            Result = drone_hub_wrapper:notify(kill,list_to_integer(Id)),
+            IntegerId = list_to_integer(Id),
+            if Result == IntegerId ->
+                Req = cowboy_req:reply(200, #{
+                    <<"content-type">> => <<"application/json">>
+                }, jiffy:encode(#{result => ok}), Req0),
+                {ok, Req, State};
+            true ->
+                Req = cowboy_req:reply(404, #{
+                    <<"content-type">> => <<"application/json">>
+                }, jiffy:encode(#{error => drone_not_exists}), Req0),
+                {ok, Req, State}
+            end;
         false -> 
             Req = cowboy_req:reply(400, #{
                 <<"content-type">> => <<"application/json">>

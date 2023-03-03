@@ -1,9 +1,9 @@
 -module(flight).
 
--export([init/7, compute_slope/2]).
+-export([init/8, compute_slope/2]).
 
 
-init(Id, Start, End, Velocity, DroneSize, ToBeAcked, MainPid) ->
+init(Id, Height, Start, End, Velocity, DroneSize, ToBeAcked, MainPid) ->
     ToBeAdded = DroneSize/2,
 
     {Start_x, Start_y} = Start,
@@ -41,7 +41,7 @@ init(Id, Start, End, Velocity, DroneSize, ToBeAcked, MainPid) ->
             DeltaT = DeltaS / Velocity,
             {{NextX, NextY, RealX, RealY, Type, DeltaT}, {NextX, NextY}} 
         end, Start, SortedPoints),
-        start_deliver(Id, Times, MainPid);
+        start_deliver(Id, (Height/Velocity), Times, MainPid);
     true ->
         %% In this case the slope of the route must be computed from the angular coefficent
         %% of the equation relative to the route
@@ -74,13 +74,21 @@ init(Id, Start, End, Velocity, DroneSize, ToBeAcked, MainPid) ->
             DeltaT = DeltaS / Velocity,
             {{NextX, NextY, RealX, RealY, Type, DeltaT}, {NextX, NextY}} 
         end, Start, SortedPoints),
-        start_deliver(Id, Times, MainPid)
+        start_deliver(Id, (Height/Velocity), Times, MainPid)
     end.
 
-start_deliver(Id, Times, MainPid) ->
+start_deliver(Id, HeightTime, Times, MainPid) ->
+    {StartX, StartY, RealStartX, RealStartY, Type, _} = lists:nth(1, Times),
+    {EndX, EndY, RealEndX, RealEndY, Type, _} = lists:nth(length(Times), Times),
+
+    TakingOff = {StartX, StartY, RealStartX, RealStartY, taking_off, HeightTime},
+    Landing = {EndX, EndY, RealEndX, RealEndY, landing, HeightTime},
+
+    NewTimes = lists:append([TakingOff | Times], [Landing]),
+
     Started = get_timestamp(),
     io:format("Drone ~p --> Started to fly at time: ~p~n", [Id, Started]),
-    update_position(Id, Times, MainPid),
+    update_position(Id, NewTimes, MainPid),
     Arrived = get_timestamp(),
     io:format("Drone ~p --> Arrived at final position at time: ~p~n", [Id, Arrived]),
     io:format("Drone ~p --> Total travel time: ~p~n", [Id, ((Arrived-Started)/1000)]).
