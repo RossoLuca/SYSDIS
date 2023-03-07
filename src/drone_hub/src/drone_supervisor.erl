@@ -10,7 +10,7 @@
 
 -define(DRONE_HEIGHT, 50.0).
 
--define(ACK_THRESHOLD, 4).
+-define(NOTIFY_THRESHOLD, 4).
 
 start_link() ->
     Pid = spawn_link(?MODULE, init, []),
@@ -67,18 +67,17 @@ loop(IdMax, Spawned, MonitoredDrones, Id_to_Pid) ->
 
             StartX = maps:get(start_x, Delivery),
             StartY = maps:get(start_y, Delivery),
-            Height = ?DRONE_HEIGHT,
             CurrentX = maps:get(current_x, Delivery),
             CurrentY = maps:get(current_y, Delivery),
             EndX = maps:get(end_x, Delivery),
             EndY = maps:get(end_y, Delivery),
-            State = maps:get(state, Delivery),
+            State = pending,
             Fallen = maps:get(fallen, Delivery),
             RecoveryFlag = maps:get(recovery, Delivery),
             Policy = fun(CollisionTable) -> agreementPolicy(CollisionTable) end,
             
             
-            FromPid ! {config, ?VELOCITY, ?DRONE_SIZE, Policy, RecoveryFlag, Height, {StartX, StartY}, {CurrentX, CurrentY}, {EndX, EndY}, State, Fallen},
+            FromPid ! {config, ?VELOCITY, ?DRONE_SIZE, ?NOTIFY_THRESHOLD, Policy, RecoveryFlag, ?DRONE_HEIGHT, {StartX, StartY}, {CurrentX, CurrentY}, {EndX, EndY}, State, Fallen},
 
             NewMonitoredDrones = maps:put(FromPid, Id, MonitoredDrones),
             NewId_to_Pid = maps:put(Id, FromPid, Id_to_Pid),
@@ -86,7 +85,7 @@ loop(IdMax, Spawned, MonitoredDrones, Id_to_Pid) ->
         {'DOWN', _Ref, process, FromPid, Reason} ->
             if Reason =/= normal ->
                 Id = maps:get(FromPid, MonitoredDrones),
-                io:format("DRONE HUB --> Drone ~p crashed.~n A new drone will be spawned to complete its delivery.~n", [Id]),
+                % io:format("DRONE HUB --> Drone ~p crashed.~n A new drone will be spawned to complete its delivery.~n", [Id]),
                 Delivery = get_last_drone_update(Id),
                 DEV_MODE = list_to_atom(os:getenv("DEV_MODE", "false")),
                 if DEV_MODE == true ->
@@ -171,10 +170,10 @@ get_last_drone_update(DroneId) ->
                 true ->
                     OldFallen ++ ";" ++ integer_to_list(CurrentTime)
                 end,
-    io:format("NewFallen: ~p~n", [NewFallen]),
+    % io:format("NewFallen: ~p~n", [NewFallen]),
     Delivery = #{
         id => maps:get(<<"id">>, Object),
-        state => binary_to_atom(maps:get(<<"state">>, Object)),
+        state => pending,
         start_x => maps:get(<<"start_x">>, Object),
         start_y => maps:get(<<"start_y">>, Object),
         current_x => maps:get(<<"current_x">>, Object),
@@ -238,8 +237,8 @@ agreementPolicy(CollisionTable) ->
                             Out
                     end, CollisionTable, FirstRuleOrdered),
     SecondRule = maps:fold(fun(K, V, AccIn) ->
-                        Count = length(maps:get(ack_count, V)),
-                        if Count > ?ACK_THRESHOLD ->
+                        Count = length(maps:get(notify_count, V)),
+                        if Count >= ?NOTIFY_THRESHOLD ->
                             AccOut = [K | AccIn],
                             AccOut;
                         true ->
@@ -252,8 +251,8 @@ agreementPolicy(CollisionTable) ->
                             Out
                     end, TableAfterFirstRule, SecondRuleOrdered),
     ThirdRuleOrdered = lists:sort(fun({A, MapA}, {B, MapB}) ->
-                    CollisionA = length(maps:get(collisions, MapA)),
-                    CollisionB = length(maps:get(collisions, MapB)),
+                    CollisionA = sets:size(maps:get(collisions, MapA)),
+                    CollisionB = sets:size(maps:get(collisions, MapB)),
                     if CollisionA < CollisionB ->
                         true;
                     CollisionA == CollisionB ->

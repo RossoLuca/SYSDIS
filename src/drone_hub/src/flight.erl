@@ -78,8 +78,8 @@ init(Id, Height, Start, End, Velocity, DroneSize, ToBeAcked, MainPid) ->
     end.
 
 start_deliver(Id, HeightTime, Times, MainPid) ->
-    {StartX, StartY, RealStartX, RealStartY, Type, _} = lists:nth(1, Times),
-    {EndX, EndY, RealEndX, RealEndY, Type, _} = lists:nth(length(Times), Times),
+    {StartX, StartY, RealStartX, RealStartY, _, _} = lists:nth(1, Times),
+    {EndX, EndY, RealEndX, RealEndY, _, _} = lists:nth(length(Times), Times),
 
     TakingOff = {StartX, StartY, RealStartX, RealStartY, taking_off, HeightTime},
     Landing = {EndX, EndY, RealEndX, RealEndY, landing, HeightTime},
