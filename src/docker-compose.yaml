@@ -1,27 +1,46 @@
-version: '3.3'
+version: '3.5'
 
-# services:
-  # node:
-  #   build: ./repository/
-  #   hostname: node
-
-  # gateway:
-  #   build: ./rest/
-  #   links:
-  #     - node:first
-  #   hostname: gateway
-  #   ports: 
-  #     - "8080:8080"
 
 services:
   db:
+    container_name: db
+    hostname: db_host
     build:
         context: ./repository/
         dockerfile: Dockerfile
-
+    networks:
+      - dis_sys
+    stdin_open: true 
+    tty: true
+        
   rest:
+    container_name: rest
+    hostname: rest_host
     build:
         context: ./rest/
         dockerfile: Dockerfile
+    networks:
+      - dis_sys
     ports:
       - "8080:8080"
+    stdin_open: true 
+    tty: true
+  
+  drone_hub:
+    environment: 
+      - DEV_MODE=true
+    container_name: drone_hub
+    hostname: drone_hub_host
+    build:
+      context: ./drone_hub/
+      dockerfile: Dockerfile
+    networks:
+      - dis_sys
+    stdin_open: true 
+    tty: true
+
+networks:
+  dis_sys:
+    name: dis_sys
+    external: true
+    
