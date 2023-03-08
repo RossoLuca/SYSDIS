@@ -87,11 +87,11 @@ start_deliver(Id, HeightTime, Times, MainPid) ->
     NewTimes = lists:append([TakingOff | Times], [Landing]),
 
     Started = get_timestamp(),
-    io:format("Drone ~p --> Started to fly at time: ~p~n", [Id, Started]),
+    logging:log(Id, "Started to fly at time: ~p", [Started]),
     update_position(Id, NewTimes, MainPid),
     Arrived = get_timestamp(),
-    io:format("Drone ~p --> Arrived at final position at time: ~p~n", [Id, Arrived]),
-    io:format("Drone ~p --> Total travel time: ~p~n", [Id, ((Arrived-Started)/1000)]).
+    logging:log(Id, "Arrived at final position at time: ~p", [Arrived]),
+    logging:log(Id, "Total travel time: ~p", [((Arrived-Started)/1000)]).
 
 get_timestamp() ->
     {Mega, Sec, Micro} = os:timestamp(),

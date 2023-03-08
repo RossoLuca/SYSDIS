@@ -33,7 +33,7 @@ init() ->
 loop(IdMax, Spawned, MonitoredDrones, Id_to_Pid) ->
     receive
         {create, {_FromNode, FromPid}, StartX, StartY, EndX, EndY} ->
-            io:format("DRONE HUB --> Received a request of spawning a new drone from the Rest API~n"),
+            logging:log("Received a request of spawning a new drone from the Rest API"),
             FromPid ! {ack, IdMax},
             DEV_MODE = list_to_atom(os:getenv("DEV_MODE", "false")),
             if DEV_MODE == true ->
@@ -57,7 +57,7 @@ loop(IdMax, Spawned, MonitoredDrones, Id_to_Pid) ->
             NewSpawned = maps:put(IdMax, Delivery, Spawned),
             loop(NewIdMax, NewSpawned, MonitoredDrones, Id_to_Pid);
         {link, {_FromNode, FromPid}, Id} ->
-            io:format("DRONE HUB --> Received link from drone ~p with Pid ~p ~n", [Id, FromPid]),
+            logging:log("Received link from drone ~p with Pid ~p", [Id, FromPid]),
             Delivery = maps:get(Id, Spawned),
             DeliveryWithPid = maps:put(pid, pid_to_list(FromPid), Delivery),
             sendNewDelivery(maps:remove(recovery, DeliveryWithPid)),
@@ -85,7 +85,7 @@ loop(IdMax, Spawned, MonitoredDrones, Id_to_Pid) ->
         {'DOWN', _Ref, process, FromPid, Reason} ->
             if Reason =/= normal ->
                 Id = maps:get(FromPid, MonitoredDrones),
-                % io:format("DRONE HUB --> Drone ~p crashed.~n A new drone will be spawned to complete its delivery.~n", [Id]),
+                logging:log("Drone ~p crashed.~n A new drone will be spawned to complete its delivery", [Id]),
                 Delivery = get_last_drone_update(Id),
                 DEV_MODE = list_to_atom(os:getenv("DEV_MODE", "false")),
                 if DEV_MODE == true ->
@@ -98,18 +98,18 @@ loop(IdMax, Spawned, MonitoredDrones, Id_to_Pid) ->
                 loop(IdMax, NewSpawned, MonitoredDrones, Id_to_Pid);
             true ->
                 DroneId = maps:get(FromPid, MonitoredDrones),
-                io:format("Drone ~p --> Completed its task~n", [DroneId]),
+                logging:log("Drone ~p has completed its task", [DroneId]),
                 NewMonitoredDrones = maps:remove(DroneId, MonitoredDrones),
                 loop(IdMax, Spawned, NewMonitoredDrones, Id_to_Pid)
             end;
         {kill, {_FromNode, FromPid}, Id} ->
-            io:format("DRONE HUB --> Received a request of kill drone with ID ~p, from the Rest API~n", [Id]),
+            logging:log("Received a request of kill the drone with ID ~p, from the Rest API", [Id]),
             Drone = maps:get(Id, Id_to_Pid, not_found),
             if Drone =/= not_found ->
                 kill_drone(Drone),
                 FromPid ! {success, Id};
             true ->
-                io:format("DRONE HUB --> Drone ~p not found!~n", [Id]),
+                logging:log("Drone ~p not found!", [Id]),
                 FromPid ! {error, drone_not_exists}
             end,
             loop(IdMax, Spawned, MonitoredDrones, Id_to_Pid);
@@ -121,10 +121,9 @@ sendNewDelivery(Delivery) ->
     Conn = http_utils:createConnection(),
     Resource = "/delivery/",
     Response = http_utils:doPost(Conn, Resource, Delivery),
-    io:format("Response: ~p~n", [Response]),
-    ok.
+    Response.
 
-
+% spawnDrone can be used to spawn each drone on a different containter
 spawnDrone(Id) ->
     Network = "dis_sys",
     ContainerName = "drone_" ++ integer_to_list(Id),
@@ -136,9 +135,8 @@ spawnDrone(Id) ->
                     " --net " ++ Network ++ " " ++ Image,
     _StdOut = os:cmd(Command).
 
-% spawnLocalDrone si può usare per spawnare i droni in locale per testing
-% spawnDrone si può usare per spawanare ogni drone su container diversi
 
+% spawnLocalDrone can be used for testing to spawn drones in local
 spawnLocalDrone(Id) ->
     spawn(drone_main, init, [Id]).
 
@@ -153,8 +151,8 @@ getLastId() ->
             IdMax = maps:get(<<"result">>, Response),
             {Conn, IdMax};
         _ ->
-            io:format("DRONE HUB --> Error during attempt to get info from the Rest.~n"),
-            io:format("DRONE HUB --> Drone hub will be restarted for another attempt.~n"),
+            logging:log("Error during attempt to get setup info from the Rest"),
+            logging:log("Drone hub will be restarted for another attemp"),
             exit(self(), rest_connection_error)
     end.
 
@@ -170,7 +168,7 @@ get_last_drone_update(DroneId) ->
                 true ->
                     OldFallen ++ ";" ++ integer_to_list(CurrentTime)
                 end,
-    % io:format("NewFallen: ~p~n", [NewFallen]),
+
     Delivery = #{
         id => maps:get(<<"id">>, Object),
         state => pending,

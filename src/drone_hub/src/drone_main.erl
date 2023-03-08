@@ -1,6 +1,6 @@
 -module(drone_main).
 -define(RETRY_LIMIT,2).
--export([start_link/0, init/1, drone_synchronizer/8, update_personal_collisions/5, send_update_table/3, agreement_loop/8, get_route_start/1]).
+-export([start_link/0, init/1, drone_synchronizer/8, update_personal_collisions/5, send_update_table/3, agreement_loop/7, get_route_start/1]).
 
 start_link() ->
     Id = list_to_integer(os:getenv("ID")),
@@ -14,12 +14,12 @@ init(Id) ->
     {drone_hub, 'drone_hub@drone_hub_host'} ! {link, {node(), self()}, Id},
     {Configuration, DroneState} = receive_configuration(),
 
-    io:format("Drone ~p started~n", [Id]),
+    logging:log(Id, "Started", []),
 
     Route = {get_route_start(Configuration), maps:get(route_end, Configuration)},
     case http_utils:createConnection() of
         connection_timed_out ->
-            io:format("Warning Rest service not reachable");
+            logging:log(Id, "Warning: Rest service not reachable", []);
         Connection ->
             Resource = "/delivery/get_active_drones/?fields=id,pid",
             Response = http_utils:doGet(Connection, Resource),
@@ -71,7 +71,6 @@ init(Id) ->
                                         end,
 
             Size = maps:size(FilteredSynchronizationMap),
-            MessageOrder = 0,
             if Size > 0 ->
                 CollisionTable = #{},
                 Message = {sync_hello, self(), Id, Route},
@@ -80,13 +79,13 @@ init(Id) ->
                                     External_Pid = maps:get(pid, Entry),
                                     spawn(drone_main, drone_synchronizer, [Id, self(), maps:get(drone_size, Configuration), Route, External_Id, External_Pid, 0, Message])
                             end, FilteredSynchronizationMap),
-                sync_loop(MessageOrder, Id, Configuration, DroneState, CollisionTable, FilteredSynchronizationMap, NewDrones, PersonalCollisions, ToNotUpdate);
+                sync_loop(Id, Configuration, DroneState, CollisionTable, FilteredSynchronizationMap, NewDrones, PersonalCollisions, ToNotUpdate);
             true ->
                 CollisionTable = #{
                         Id => #{notify_count => [], collisions => sets:new(), state => pending}
                 },
-                io:format("Drone ~p --> Started agreement phase~n", [Id]),
-                agreement_loop(MessageOrder, Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions, ToNotUpdate)
+                logging:log(Id, "Started agreement phase", []),
+                agreement_loop(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions, ToNotUpdate)
             end
     end.
 
@@ -114,10 +113,9 @@ receive_configuration() ->
 
 drone_synchronizer(Id, MainPid, DroneSize, Route, External_Id, External_Pid, Retry_count, Message) ->
     External_Pid ! {sync_hello, self(), Id, MainPid, Route},
-    io:format("Drone ~p --> Sent sync_hello message to drone ~p with Pid ~p~n", [Id, External_Id, External_Pid]),
+    logging:log(Id, "Sent sync_hello message to drone ~p with Pid ~p", [External_Id, External_Pid]),
     receive
         {sync_result, External_Pid, External_Id, Collision_response, Collision_points} ->
-            % io:format("Drone ~p --> Received sync_result from drone ~p with response ~p~n", [Id, External_Id,Collision_response]),
 
             MainPid ! {collision_response, External_Pid, External_Id, Collision_response, Collision_points}
         after 3000 ->
@@ -128,11 +126,10 @@ drone_synchronizer(Id, MainPid, DroneSize, Route, External_Id, External_Pid, Ret
             end
     end.
 
-sync_loop(MessageOrder, Id, Configuration, DroneState, CollisionTable, SynchronizationMap, NewDrones, PersonalCollisions, ToNotUpdate) ->
+sync_loop(Id, Configuration, DroneState, CollisionTable, SynchronizationMap, NewDrones, PersonalCollisions, ToNotUpdate) ->
     receive
         {collision_response, External_Pid, External_Id, Collision_response, Collision_points} ->
-            io:format("Drone ~p [~p] --> Received collision_response with result ~p from drone_synchronizer process about collision with drone ~p on pid ~p~n", 
-                                        [Id, MessageOrder, Collision_response, External_Id, External_Pid]),
+            logging:log(Id, "Received collision_response with result ~p from drone_synchronizer process about collision with drone ~p on pid ~p", [Collision_response, External_Id, External_Pid]),
             
             ReceivedResultFlag = maps:get(received_result, maps:get(External_Id, SynchronizationMap)),
 
@@ -178,7 +175,7 @@ sync_loop(MessageOrder, Id, Configuration, DroneState, CollisionTable, Synchroni
             
             Size = maps:size(FilteredMap),
             if Size == 0 ->
-                io:format("Drone ~p [~p] --> PersonalCollisions after sync phase: ~p~n", [Id, MessageOrder + 1, NewPersonalCollisions]),
+                logging:log(Id, "PersonalCollisions after sync phase: ~p", [NewPersonalCollisions]),
                 
                 %% Since I have received all the collision computance from all the other drones, I can insert the row 
                 %% regarding myself in my collision table
@@ -192,27 +189,26 @@ sync_loop(MessageOrder, Id, Configuration, DroneState, CollisionTable, Synchroni
                 %% So, since I know all my collisions I'm ready to send update_table message to drones involved with me
                 %% I'm also sure that in can get in this if only once, since the the condition Size == 0 is evaluated only
                 %% when I receive a sync_result from other drones (so once I get them all I never get in this receive clause)
-                io:format("Drone ~p [~p] --> Sending update table in sync_loop with this PersonalCollision: ~p~n", [Id, MessageOrder + 2, NewPersonalCollisions]),
                 send_update_table(Id, NewPersonalCollisions, DroneState),
 
                 
                 %% The following condition will be evaluated to true only when the current drone hasn't collisions with other drones
                 StartAgreement = go_to_agreement(NewCollisionTable, NewSynchronizationMap),
                 if StartAgreement == true ->
-                    agreement_loop(MessageOrder + 3, Id, Configuration, DroneState, NewCollisionTable, NewDrones, NewPersonalCollisions, ToNotUpdate);
+                    agreement_loop(Id, Configuration, DroneState, NewCollisionTable, NewDrones, NewPersonalCollisions, ToNotUpdate);
                 true ->
 
                 %% Actually, probably the condition StartAgreement == 0 will be never evaluated to true since I can receive update_table messages
                 %% only when I have already sent my update_table message to other drones
             
-                    sync_loop(MessageOrder + 3, Id, Configuration, DroneState, NewCollisionTable, NewSynchronizationMap, NewDrones, NewPersonalCollisions, ToNotUpdate)
+                    sync_loop(Id, Configuration, DroneState, NewCollisionTable, NewSynchronizationMap, NewDrones, NewPersonalCollisions, ToNotUpdate)
                 end;
             true ->
-                sync_loop(MessageOrder + 3, Id, Configuration, DroneState, CollisionTable, NewSynchronizationMap, NewDrones, NewPersonalCollisions, ToNotUpdate)
+                sync_loop(Id, Configuration, DroneState, CollisionTable, NewSynchronizationMap, NewDrones, NewPersonalCollisions, ToNotUpdate)
             end;
 
         {sync_hello, FromPid, FromId, FromRoute} ->
-            io:format("Drone ~p [~p] --> Received sync_hello message from drone ~p~n to compute collision computation", [Id, MessageOrder, FromId]),
+            logging:log(Id, "Received sync_hello message from drone ~p to compute collision computation", [FromId]),
             MyStart = get_route_start(Configuration),
             MyEnd = maps:get(route_end, Configuration),
             DroneSize = maps:get(drone_size, Configuration),
@@ -231,23 +227,11 @@ sync_loop(MessageOrder, Id, Configuration, DroneState, CollisionTable, Synchroni
                                     end,
 
             FromPid ! {sync_result, self(), Id, Collision_response, Collision_points},
-            sync_loop(MessageOrder + 1, Id, Configuration, DroneState, UpdatedCollisionTable, NewSynchronizationMap, maps:put(FromId, FromPid, NewDrones), NewPersonalCollisions, ToNotUpdate);
+            sync_loop(Id, Configuration, DroneState, UpdatedCollisionTable, NewSynchronizationMap, maps:put(FromId, FromPid, NewDrones), NewPersonalCollisions, ToNotUpdate);
         
         {update_table, FromPid, FromId, Action, FromCollidingDrones, FromState, FromNotify_count} ->
 
-            % CollisionWithOther = maps:get(FromPid, PersonalCollisions, not_exists),
-            % if CollisionWithOther == not_exists ->
-            %     io:format("Drone ~p --> Update_table message from older drone ~p~n", [Id, FromId]);
-            % true ->
-            %     ExternalPid = maps:get(pid, CollisionWithOther),
-            %     if FromPid =/= ExternalPid ->
-            %         io:format("Drone ~p --> Update_table message from older drone ~p~n", [Id, FromId]);
-            %     true ->
-            %         ok
-            %     end
-            % end,
-
-            io:format("Drone ~p [~p] --> Received update_table message from drone ~p with action ~p~n", [Id, MessageOrder, FromId, Action]),
+            logging:log(Id, "Received update_table message from drone ~p with action ~p", [FromId, Action]),
             %% We need to check that we received an update_table message from a drone that is already in our PersonalCollisions
             %% Otherwise this could be an old message
             Drone = maps:get(FromId, PersonalCollisions, not_exists),
@@ -296,30 +280,28 @@ sync_loop(MessageOrder, Id, Configuration, DroneState, CollisionTable, Synchroni
                     StartAgreement = go_to_agreement(NewCollisionTable, NewSynchronizationMap),
 
                     if StartAgreement == true ->
-                        agreement_loop(MessageOrder + 1, Id, Configuration, DroneState, NewCollisionTable, NewDrones, NewPersonalCollisions, ToNotUpdate);
+                        agreement_loop(Id, Configuration, DroneState, NewCollisionTable, NewDrones, NewPersonalCollisions, ToNotUpdate);
                     true ->
-                        sync_loop(MessageOrder + 1, Id, Configuration, DroneState, NewCollisionTable, NewSynchronizationMap, NewDrones, NewPersonalCollisions, ToNotUpdate)
+                        sync_loop(Id, Configuration, DroneState, NewCollisionTable, NewSynchronizationMap, NewDrones, NewPersonalCollisions, ToNotUpdate)
                     end;
             true ->
-                io:format("Drone ~p [~p] --> Received an update_table message from drone ~p that is not in collision with me~n", [Id, MessageOrder + 1, FromId]),
-                sync_loop(MessageOrder + 2, Id, Configuration, DroneState, CollisionTable, NewSynchronizationMap, NewDrones, PersonalCollisions, ToNotUpdate)
+                logging:log(Id, "Received an update_table message from drone ~p that is not in collision with me", [FromId]),
+                sync_loop(Id, Configuration, DroneState, CollisionTable, NewSynchronizationMap, NewDrones, PersonalCollisions, ToNotUpdate)
             end
     end.
 
-agreement_loop(MessageOrder, Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions, ToNotUpdate) ->
-    io:format("Drone ~p [~p] --> Making agreement with CollisionTable: ~p; PersonalCollisions: ~p~n", [Id, MessageOrder, CollisionTable, PersonalCollisions]),
-    
+agreement_loop(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions, ToNotUpdate) ->
     Policy = maps:get(policy, Configuration),
     Ordering = apply(Policy, [CollisionTable]),
-    io:format("Drone ~p [~p] --> Ordering: ~p~n", [Id, MessageOrder + 1, Ordering]),
+    logging:log(Id, "Ordering: ~p", Ordering),
     [Head | _Tail] = Ordering,
     if Head == Id ->
         UpdateTableBuffer = [],
         ToBeAcked = sets:new(),
-        on_waiting_notify:handle_state(MessageOrder + 2, Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions, UpdateTableBuffer, ToBeAcked);
+        on_waiting_notify:handle_state(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions, UpdateTableBuffer, ToBeAcked);
     true ->
         ToBeNotified = create_notify_buffer(Ordering, CollisionTable),
-        io:format("Drone ~p [~p] --> ToBeNotified: ~p~n", [Id, MessageOrder + 2, ToBeNotified]),
+
         send_notify(Id, ToBeNotified, PersonalCollisions),
         ReceivedAcks = [],
         NewDroneState = #{
@@ -334,8 +316,8 @@ agreement_loop(MessageOrder, Id, Configuration, DroneState, CollisionTable, NewD
             state => maps:get(state, NewDroneState)
         },
         UpdatedCollisionTable = maps:put(Id, NewMyCollisions, CollisionTable),
-        io:format("Drone ~p [~p] --> Waiting ack messages from drones: ~p~n", [Id, MessageOrder + 3, ToBeNotified]),
-        on_waiting_ack:handle_state(MessageOrder + 4, Id, Configuration, NewDroneState, UpdatedCollisionTable, NewDrones, PersonalCollisions, sets:from_list(ToBeNotified), ReceivedAcks, Ordering, ToNotUpdate)
+
+        on_waiting_ack:handle_state(Id, Configuration, NewDroneState, UpdatedCollisionTable, NewDrones, PersonalCollisions, sets:from_list(ToBeNotified), ReceivedAcks, Ordering, ToNotUpdate)
     end.
 
 update_personal_collisions(Collision_response, FromPid, FromId, Collision_points, PersonalCollisions) ->
@@ -357,7 +339,7 @@ send_update_table(Id, PersonalCollisions, DroneState) ->
             Notify_count = maps:get(notify_count, DroneState),
             External_Pid ! {update_table, self(), Id, add, CollidingDrones, State, Notify_count},
 
-            io:format("Drone ~p --> Sent update_table message to drone ~p~n", [Id, External_Id])        
+            logging:log(Id, "Sent update_table message to drone ~p", [External_Id])    
         end, PersonalCollisions). 
 
 create_notify_buffer(Ordering, CollisionTable) ->
@@ -378,7 +360,7 @@ send_notify(Id, ToBeNotified, PersonalCollisions) ->
     lists:foreach(fun(T) ->
                 External_Pid = maps:get(pid, maps:get(T, PersonalCollisions)),
                 External_Pid ! {notify, self(), Id},
-                io:format("Drone ~p --> Sent notify message to drone ~p~n", [Id, T])
+                logging:log(Id, "Sent notify message to drone ~p", [T])
             end, ToBeNotified).
 
 

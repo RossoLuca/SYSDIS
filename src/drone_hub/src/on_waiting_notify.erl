@@ -1,9 +1,9 @@
 -module(on_waiting_notify).
 
--export([handle_state/9, spawnFlightProcess/4]).
+-export([handle_state/8, spawnFlightProcess/4]).
 
 
-handle_state(MessageOrder, Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions, UpdateTableBuffer, ToBeAcked) ->
+handle_state(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions, UpdateTableBuffer, ToBeAcked) ->
     WaitingFrom = maps:get(collisions, maps:get(Id, CollisionTable)),
     SizeWaitingFrom = sets:size(WaitingFrom),
     SizeToBeAcked = sets:size(ToBeAcked),
@@ -15,17 +15,16 @@ handle_state(MessageOrder, Id, Configuration, DroneState, CollisionTable, NewDro
         UpdatedToBeAcked = lists:map(fun(T) -> #{id => T, received => pre} end, sets:to_list(ToBeAcked)),
         AlreadyAcked = [],
         RestConnection = http_utils:createConnection(),
-        io:format("Drone ~p [~p] --> Started to fly --- UpdatedToBeAcked: ~p~n", [Id, MessageOrder, UpdatedToBeAcked]),
-        flying:handle_state(MessageOrder + 1, Id, Configuration, NewDroneState, CurrentPosition, UpdatedCollisionTable, NewDrones, PersonalCollisions, UpdatedToBeAcked, FlyingProcessPid, RestConnection, AlreadyAcked);
+        logging:log(Id, "Started to fly", []),
+        flying:handle_state(Id, Configuration, NewDroneState, CurrentPosition, UpdatedCollisionTable, NewDrones, PersonalCollisions, UpdatedToBeAcked, FlyingProcessPid, RestConnection, AlreadyAcked);
     true ->
-        % io:format("Drone ~p [~p] --> WAITING NOTIFY MESSAGES FROM ~p~n", [Id, MessageOrder, WaitingFrom]),
         receive
             {sync_hello, FromPid, FromId, FromMainPid, FromRoute} ->
                 %% When a drone receive a sync_hello message while it's waiting for some notify messages it does the collision computation,
                 %% updates its PersonalCollisions (in case of collision), returns the sync_result to other drone, but continue to remain in the
                 %% same state
 
-                io:format("Drone ~p [~p] --> Received sync_hello message from drone ~p to compute collision computation~n", [Id, MessageOrder + 1, FromMainPid]),
+                logging:log(Id, "Received sync_hello message from drone ~p to compute collision computation", [FromMainPid]),
                 MyStart = drone_main:get_route_start(Configuration),
                 MyEnd = maps:get(route_end, Configuration),
                 DroneSize = maps:get(drone_size, Configuration),
@@ -39,25 +38,11 @@ handle_state(MessageOrder, Id, Configuration, DroneState, CollisionTable, NewDro
 
                 {Collision_response, Collision_points} = collision_detection:compute_collision(DroneSize, Id, {MyStart, MyEnd}, FromId, FromRoute),
                 NewPersonalCollisions = drone_main:update_personal_collisions(Collision_response, FromMainPid, FromId, Collision_points, PersonalCollisions),
-                
-                % AlreadyInCollisionTable = maps:get(FromId, CollisionTable, false),
-                % UpdatedCollisionTable = if AlreadyInCollisionTable =/= false ->
-                %                             remove_from_all(FromId, maps:remove(FromId, CollisionTable));
-                %                         true ->
-                %                             CollisionTable
-                %                         end,
 
                 FromPid ! {sync_result, self(), Id, Collision_response, Collision_points},
-                handle_state(MessageOrder + 2, Id, Configuration, DroneState, CollisionTable, maps:put(FromId, FromMainPid, NewDrones), NewPersonalCollisions, UpdateTableBuffer, NewToBeAcked);
+                handle_state(Id, Configuration, DroneState, CollisionTable, maps:put(FromId, FromMainPid, NewDrones), NewPersonalCollisions, UpdateTableBuffer, NewToBeAcked);
 
             {update_table, FromPid, FromId, _Action, FromCollidingDrones, FromState, FromNotify_count} ->
-
-                % ExternalPid = maps:get(pid, maps:get(FromId, PersonalCollisions)),
-                % if FromPid =/= ExternalPid ->
-                %     io:format("Drone ~p --> Update_table message from older drone ~p~n", [Id, FromId]);
-                % true ->
-                %     ok
-                % end,
 
                 FindInPersonalCollisions = maps:get(FromId, PersonalCollisions, false),
                 StoredPid = if FindInPersonalCollisions =/= false ->
@@ -66,7 +51,7 @@ handle_state(MessageOrder, Id, Configuration, DroneState, CollisionTable, NewDro
                                 false
                             end,
                 PidConsistency = (StoredPid =/= false) andalso (StoredPid == FromPid),
-                % io:format("Drone ~p [~p] --> While waiting notify, FindInPersonalCollisions: ~p, StoredPid: ~p, FromPid: ~p, PidConsistency: ~p~n", [Id, MessageOrder + 1, FindInPersonalCollisions, StoredPid, FromPid, PidConsistency]),
+                
                 if PidConsistency == true ->
                         %% When a drone receive an update_table message while it's waiting for some notify messages, first of all must be seen
                         %% if this update_table message come from a drone that is alerady present in the collision table or is from 
@@ -92,10 +77,8 @@ handle_state(MessageOrder, Id, Configuration, DroneState, CollisionTable, NewDro
                             State = maps:get(state, DroneState),
                             Notify_count = maps:get(notify_count, DroneState),
                             FromPid ! {update_table, self(), Id, add, CollidingDrones, State, Notify_count},
-
-                            % io:format("Drone ~p --> Sent update_table~n", [Id]),
                                         
-                            handle_state(MessageOrder + 2, Id, Configuration, DroneState, NewCollisionTable, NewDrones, PersonalCollisions, UpdateTableBuffer, ToBeAcked);
+                            handle_state(Id, Configuration, DroneState, NewCollisionTable, NewDrones, PersonalCollisions, UpdateTableBuffer, ToBeAcked);
                         true ->
                             %% In this case the drone hasn't an entry about FromId in its CollisionTable
                             %% Since the drone has already taken the priority from the other drones that collide with him,
@@ -108,20 +91,12 @@ handle_state(MessageOrder, Id, Configuration, DroneState, CollisionTable, NewDro
                             %% but also an update_table message will be sent to the drones that have sent them
                             UpdateTableMessage = {FromId, FromCollidingDrones, FromState, FromNotify_count},
                             NewBuffer = [UpdateTableMessage | UpdateTableBuffer],
-                            handle_state(MessageOrder + 2, Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions, NewBuffer, ToBeAcked)
+                            handle_state(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions, NewBuffer, ToBeAcked)
                         end;
                 true ->
-                    % io:format("Drone ~p [~p] --> Received update_table message from the failed drone ~p~n", [Id, MessageOrder + 2, FromId]),
-                    handle_state(MessageOrder + 3, Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions, UpdateTableBuffer, ToBeAcked)
+                    handle_state(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions, UpdateTableBuffer, ToBeAcked)
                 end;
             {notify, FromPid, FromId} ->
-
-                % ExternalPid = maps:get(pid, maps:get(FromId, PersonalCollisions)),
-                % if FromPid =/= ExternalPid ->
-                %     io:format("Drone ~p --> Notify message from older drone ~p~n", [Id, FromId]);
-                % true ->
-                %     ok
-                % end,
 
                 FindInPersonalCollisions = maps:get(FromId, PersonalCollisions, false),
                 StoredPid = if FindInPersonalCollisions =/= false ->
@@ -137,20 +112,19 @@ handle_state(MessageOrder, Id, Configuration, DroneState, CollisionTable, NewDro
                         if Find == true ->
                             AlreadyReceived = sets:is_element(FromId, ToBeAcked),
                             if AlreadyReceived == false ->
-                                io:format("Drone ~p [~p] --> Received notify message from drone ~p~n", [Id, MessageOrder + 1, FromId]),
+                                logging:log(Id, "Received notify message from drone ~p", [FromId]),
                                 NewToBeAcked = sets:add_element(FromId, ToBeAcked),
-                                handle_state(MessageOrder + 2, Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions, UpdateTableBuffer, NewToBeAcked);
+                                handle_state(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions, UpdateTableBuffer, NewToBeAcked);
                             true ->
-                                io:format("Drone ~p [~p] --> Received a duplicated notify message from drone ~p~n", [Id, MessageOrder + 1, FromId]),
-                                handle_state(MessageOrder + 2, Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions, UpdateTableBuffer, ToBeAcked)
+                                logging:log(Id, "Received a duplicated notify message from drone ~p", [FromId]),
+                                handle_state(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions, UpdateTableBuffer, ToBeAcked)
                             end;
                         true ->
-                            io:format("Drone ~p [~p] --> Received notify message from drone ~p that is unecessary~n", [Id, MessageOrder + 1, FromId]),
-                            handle_state(MessageOrder + 2, Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions, UpdateTableBuffer, ToBeAcked)
+                            logging:log(Id, "Received notify message from drone ~p that is unecessary", [FromId]),
+                            handle_state(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions, UpdateTableBuffer, ToBeAcked)
                         end;
                 true ->
-                    % io:format("Drone ~p [~p] --> Received notify message from the failed drone ~p~n", [Id, MessageOrder + 1, FromId]),
-                    handle_state(MessageOrder + 2, Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions, UpdateTableBuffer, ToBeAcked)
+                    handle_state(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions, UpdateTableBuffer, ToBeAcked)
                 end
             end
     end.
@@ -186,9 +160,7 @@ spawnFlightProcess(Id, Configuration, PersonalCollisions, ToBeAcked) ->
                                         P = maps:get(Id, maps:get(points, maps:get(T, PersonalCollisions))),
                                         P
                         end, ToBeAcked),
-    % io:format("Drone ~p --> PointsToBeAcked: ~p~n", [Id, PointsToBeAcked]),
     Pid = spawn_link(flight, init, [Id, Height, Start, End, Velocity, DroneSize, PointsToBeAcked, self()]),
-    % io:format("Drone ~p --> Flight process spawned with pid: ~p~n", [Id, Pid]),
     Pid.
 
 change_state(Id, NewState, DroneState, CollisionTable) ->
