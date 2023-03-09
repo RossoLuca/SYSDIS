@@ -6,7 +6,7 @@
 handle_state(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions, Notified, ReceivedAcks, ToNotUpdate) ->
     receive
         {sync_hello, FromPid, FromId, FromMainPid, FromRoute} ->
-            logging:log(Id, "Received sync_hello message from drone ~p to compute collision computation", [FromId]),
+            logging:log(Id, "Received sync_hello message from drone ~p to compute collision computation", [FromMainPid]),
             
             DroneSize = maps:get(drone_size, Configuration),
             MyStart = utils:get_route_start(Configuration),

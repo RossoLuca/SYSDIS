@@ -1,3 +1,3 @@
 #!/bin/bash
 
-docker run --rm -it --name drone_hub -h drone_hub_host --net dis_sys -v /var/run/docker.sock:/var/run/docker.sock drone_hub_image:latest
+docker run --rm -it --name drone_hub -h drone_hub_host --net dis_sys -v /var/run/docker.sock:/var/run/docker.sock --mount source=dis_sys,destination=/dis_sys drone_hub_image:latest

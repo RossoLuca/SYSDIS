@@ -1,16 +1,7 @@
 -module(drone_supervisor).
 
--export([start_link/0, init/0, loop/4, spawnDrone/1, spawnLocalDrone/1, agreementPolicy/1]).
+-export([start_link/0, init/0, loop/5, spawnDrone/2, spawnLocalDrone/1]).
 
-% Velocity is expressed in m/s
--define(VELOCITY, 5.0).
-
-% Defines the size of the bounding box surrounding each drone
--define(DRONE_SIZE, 1.0).
-
--define(DRONE_HEIGHT, 50.0).
-
--define(NOTIFY_THRESHOLD, 4).
 
 start_link() ->
     Pid = spawn_link(?MODULE, init, []),
@@ -27,10 +18,26 @@ init() ->
     SpawnedDrones = #{},
     MonitoredDrones = #{},
     Id_to_Pid = #{},
-    SpawnedAfterRestore = restoreEnvironment(Conn, SpawnedDrones, MonitoredDrones),
-    loop(IdMax, SpawnedAfterRestore, MonitoredDrones, Id_to_Pid).
+    EnvironmentVariables = #{
+        % Velocity is expressed in m/s
+        velocity => erlang:list_to_float(os:getenv("VELOCITY", "2.0")),
+        
+        % Defines the size of the bounding box surrounding each drone
+        drone_size => erlang:list_to_float(os:getenv("DRONE_SIZE", "1.0")),
+        
+        % Defines the height that a drone must reach before to start to change its position
+        fly_height => erlang:list_to_float(os:getenv("FLY_HEIGHT", "50.0")),
 
-loop(IdMax, Spawned, MonitoredDrones, Id_to_Pid) ->
+        % Defines the threshold that if reached allows a drone to have priority in the agreement
+        notify_threshold => erlang:list_to_integer(os:getenv("NOTIFY_THRESHOLD", "4"))
+    },
+    SpawnedAfterRestore = restoreEnvironment(Conn, SpawnedDrones, MonitoredDrones),
+
+    logging:log("Started"),
+
+    loop(IdMax, SpawnedAfterRestore, MonitoredDrones, Id_to_Pid, EnvironmentVariables).
+
+loop(IdMax, Spawned, MonitoredDrones, Id_to_Pid, EnvironmentVariables) ->
     receive
         {create, {_FromNode, FromPid}, StartX, StartY, EndX, EndY} ->
             logging:log("Received a request of spawning a new drone from the Rest API"),
@@ -39,7 +46,8 @@ loop(IdMax, Spawned, MonitoredDrones, Id_to_Pid) ->
             if DEV_MODE == true ->
                 spawnLocalDrone(IdMax);
             true ->
-                spawn(?MODULE, spawnDrone, [IdMax])
+                % spawn(?MODULE, spawnDrone, [IdMax, false])
+                spawnDrone(IdMax, false)
             end,
             Delivery = #{
                 id => IdMax,
@@ -55,11 +63,12 @@ loop(IdMax, Spawned, MonitoredDrones, Id_to_Pid) ->
             },
             NewIdMax = IdMax + 1,
             NewSpawned = maps:put(IdMax, Delivery, Spawned),
-            loop(NewIdMax, NewSpawned, MonitoredDrones, Id_to_Pid);
+            loop(NewIdMax, NewSpawned, MonitoredDrones, Id_to_Pid, EnvironmentVariables);
         {link, {_FromNode, FromPid}, Id} ->
             logging:log("Received link from drone ~p with Pid ~p", [Id, FromPid]),
             Delivery = maps:get(Id, Spawned),
-            DeliveryWithPid = maps:put(pid, pid_to_list(FromPid), Delivery),
+            CodedPid = utils:pid_coding(FromPid),
+            DeliveryWithPid = maps:put(pid, CodedPid, Delivery),
             sendNewDelivery(maps:remove(recovery, DeliveryWithPid)),
             NewSpawned = maps:remove(Id, Spawned),
 
@@ -74,14 +83,17 @@ loop(IdMax, Spawned, MonitoredDrones, Id_to_Pid) ->
             State = pending,
             Fallen = maps:get(fallen, Delivery),
             RecoveryFlag = maps:get(recovery, Delivery),
-            Policy = fun(CollisionTable) -> agreementPolicy(CollisionTable) end,
+            Policy = fun(CollisionTable, Notify_Threshold) -> agreementPolicy(CollisionTable, Notify_Threshold) end,
             
             
-            FromPid ! {config, ?VELOCITY, ?DRONE_SIZE, ?NOTIFY_THRESHOLD, Policy, RecoveryFlag, ?DRONE_HEIGHT, {StartX, StartY}, {CurrentX, CurrentY}, {EndX, EndY}, State, Fallen},
+            FromPid ! {config, CodedPid, 
+                                maps:get(velocity, EnvironmentVariables), maps:get(drone_size, EnvironmentVariables), 
+                                maps:get(notify_threshold, EnvironmentVariables), Policy, RecoveryFlag, 
+                                maps:get(fly_height, EnvironmentVariables), {StartX, StartY}, {CurrentX, CurrentY}, {EndX, EndY}, State, Fallen},
 
             NewMonitoredDrones = maps:put(FromPid, Id, MonitoredDrones),
             NewId_to_Pid = maps:put(Id, FromPid, Id_to_Pid),
-            loop(IdMax, NewSpawned, NewMonitoredDrones, NewId_to_Pid); 
+            loop(IdMax, NewSpawned, NewMonitoredDrones, NewId_to_Pid, EnvironmentVariables); 
         {'DOWN', _Ref, process, FromPid, Reason} ->
             if Reason =/= normal ->
                 Id = maps:get(FromPid, MonitoredDrones),
@@ -91,30 +103,40 @@ loop(IdMax, Spawned, MonitoredDrones, Id_to_Pid) ->
                 if DEV_MODE == true ->
                     spawnLocalDrone(Id);
                 true ->
-                    spawn(?MODULE, spawnDrone, [Id])
+                    % spawn(?MODULE, spawnDrone, [Id, true])
+                    spawnDrone(Id, true)
                 end,
                 NewSpawned = maps:put(Id, Delivery, Spawned),
                 
-                loop(IdMax, NewSpawned, MonitoredDrones, Id_to_Pid);
+                loop(IdMax, NewSpawned, MonitoredDrones, Id_to_Pid, EnvironmentVariables);
             true ->
                 DroneId = maps:get(FromPid, MonitoredDrones),
                 logging:log("Drone ~p has completed its task", [DroneId]),
+                stop_container(DroneId),
                 NewMonitoredDrones = maps:remove(DroneId, MonitoredDrones),
-                loop(IdMax, Spawned, NewMonitoredDrones, Id_to_Pid)
+                loop(IdMax, Spawned, NewMonitoredDrones, Id_to_Pid, EnvironmentVariables)
             end;
         {kill, {_FromNode, FromPid}, Id} ->
             logging:log("Received a request of kill the drone with ID ~p, from the Rest API", [Id]),
             Drone = maps:get(Id, Id_to_Pid, not_found),
             if Drone =/= not_found ->
                 kill_drone(Drone),
+
+                DEV_MODE = list_to_atom(os:getenv("DEV_MODE", "false")),
+                if DEV_MODE =/= true ->
+                    stop_container(Id);
+                true ->
+                    ok
+                end,
+
                 FromPid ! {success, Id};
             true ->
                 logging:log("Drone ~p not found!", [Id]),
                 FromPid ! {error, drone_not_exists}
             end,
-            loop(IdMax, Spawned, MonitoredDrones, Id_to_Pid);
+            loop(IdMax, Spawned, MonitoredDrones, Id_to_Pid, EnvironmentVariables);
         _ ->
-            loop(IdMax, Spawned, MonitoredDrones, Id_to_Pid)
+            loop(IdMax, Spawned, MonitoredDrones, Id_to_Pid, EnvironmentVariables)
     end.
 
 sendNewDelivery(Delivery) ->
@@ -124,17 +146,34 @@ sendNewDelivery(Delivery) ->
     Response.
 
 % spawnDrone can be used to spawn each drone on a different containter
-spawnDrone(Id) ->
+spawnDrone(Id, Recovery) ->
     Network = "dis_sys",
     ContainerName = "drone_" ++ integer_to_list(Id),
     HostName = integer_to_list(Id) ++ "_host",
     EnvVariable = "ID=" ++ integer_to_list(Id),
+    Volume = "dis_sys",
+    Destination = "/dis_sys",
     Image = "drone_image",
-    Command = "docker -H unix:///var/run/docker.sock run --rm -d --name " ++ ContainerName ++ 
+    % Command = "docker -H unix:///var/run/docker.sock run --rm -d --name " ++ ContainerName ++ 
+    %                 " -h " ++ HostName ++ " --env " ++ EnvVariable ++
+    %                 " --net " ++ Network ++ " " ++ Image,
+    if Recovery =/= true ->
+        Command = "docker -H unix:///var/run/docker.sock run -d --name " ++ ContainerName ++ 
+                    " --mount source=" ++ Volume ++ ",destination=" ++ Destination ++
                     " -h " ++ HostName ++ " --env " ++ EnvVariable ++
                     " --net " ++ Network ++ " " ++ Image,
-    _StdOut = os:cmd(Command).
+        _StdOut = os:cmd(Command),
+        logging:log(_StdOut);
+    true -> 
+        Command = "docker -H unix:///var/run/docker.sock start " ++ ContainerName,
+        _StdOut = os:cmd(Command),
+        logging:log(_StdOut)
+    end.
+    % logging:log(StdOut).
 
+stop_container(Id) ->
+    Command = "docker -H unix:///var/run/docker.sock stop drone_" ++ integer_to_list(Id),
+    _StdOut = os:cmd(Command).
 
 % spawnLocalDrone can be used for testing to spawn drones in local
 spawnLocalDrone(Id) ->
@@ -219,7 +258,7 @@ restoreDrone(Drone, Spawned) ->
 kill_drone(Pid) ->
     exit(Pid, kill).
 
-agreementPolicy(CollisionTable) ->
+agreementPolicy(CollisionTable, Notify_Threshold) ->
     FirstRule = maps:fold(fun(K, V, AccIn) ->
                 State = maps:get(state, V),
                 if State == flying ->
@@ -236,7 +275,7 @@ agreementPolicy(CollisionTable) ->
                     end, CollisionTable, FirstRuleOrdered),
     SecondRule = maps:fold(fun(K, V, AccIn) ->
                         Count = length(maps:get(notify_count, V)),
-                        if Count >= ?NOTIFY_THRESHOLD ->
+                        if Count >= Notify_Threshold ->
                             AccOut = [K | AccIn],
                             AccOut;
                         true ->

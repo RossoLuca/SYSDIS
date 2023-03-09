@@ -17,7 +17,5 @@ COPY README.md .
 RUN rebar3 compile
 RUN rebar3 release
 
-#ENTRYPOINT ["/bin/bash"]
-
 WORKDIR /drone/_build/default/rel/drone/bin
 ENTRYPOINT ["./drone", "console","-noshell"]

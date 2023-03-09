@@ -27,7 +27,8 @@ init(Id) ->
             SynchronizationMap = lists:foldl(fun(Data, Acc0) ->
                             External_Id = maps:get(<<"id">>, Data),
                             if External_Id =/= Id ->
-                                Pid = list_to_pid(binary_to_list(maps:get(<<"pid">>, Data))),
+                                Pid = utils:pid_decoding(maps:get(<<"pid">>, Data)),
+                                % Pid = list_to_pid(binary_to_list(maps:get(<<"pid">>, Data))),
                                 Map = #{
                                     pid => Pid,
                                     %% At the start this flag will be false for each drone in the synchronization map
@@ -90,8 +91,9 @@ init(Id) ->
 
 receive_configuration() ->
     receive
-        {config, Velocity, Drone_size, Notify_Threshold, Policy, Recovery, Height, Start, Current, End, State, Fallen} ->
+        {config, CodedPid, Velocity, Drone_size, Notify_Threshold, Policy, Recovery, Height, Start, Current, End, State, Fallen} ->
             Config = #{
+                coded_pid => CodedPid, 
                 height => Height,
                 route_start => Start,
                 route_end => End,
@@ -281,7 +283,7 @@ sync_loop(Id, Configuration, DroneState, CollisionTable, SynchronizationMap, New
 
 agreement_loop(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions, ToNotUpdate) ->
     Policy = maps:get(policy, Configuration),
-    Ordering = apply(Policy, [CollisionTable]),
+    Ordering = apply(Policy, [CollisionTable, maps:get(notify_threshold, Configuration)]),
     logging:log(Id, "Ordering: ~p", [Ordering]),
     [Head | _Tail] = Ordering,
     if Head == Id ->
