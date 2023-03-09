@@ -1,6 +1,6 @@
 -module(drone_main).
 -define(RETRY_LIMIT,2).
--export([start_link/0, init/1, drone_synchronizer/8, update_personal_collisions/5, send_update_table/3, agreement_loop/7, get_route_start/1]).
+-export([start_link/0, init/1, drone_synchronizer/8, send_update_table/3, agreement_loop/7]).
 
 start_link() ->
     Id = list_to_integer(os:getenv("ID")),
@@ -16,7 +16,7 @@ init(Id) ->
 
     logging:log(Id, "Started", []),
 
-    Route = {get_route_start(Configuration), maps:get(route_end, Configuration)},
+    Route = {utils:get_route_start(Configuration), maps:get(route_end, Configuration)},
     case http_utils:createConnection() of
         connection_timed_out ->
             logging:log(Id, "Warning: Rest service not reachable", []);
@@ -24,7 +24,6 @@ init(Id) ->
             Resource = "/delivery/get_active_drones/?fields=id,pid",
             Response = http_utils:doGet(Connection, Resource),
 
-            Acc = #{}, 
             SynchronizationMap = lists:foldl(fun(Data, Acc0) ->
                             External_Id = maps:get(<<"id">>, Data),
                             if External_Id =/= Id ->
@@ -44,7 +43,7 @@ init(Id) ->
                             true ->
                                 Acc0
                             end 
-                        end, Acc, Response),
+                        end, #{}, Response),
             
             PersonalCollisions = #{},
             NewDrones = #{},
@@ -152,12 +151,7 @@ sync_loop(Id, Configuration, DroneState, CollisionTable, SynchronizationMap, New
                                                                 New_Synchronization_Map = maps:put(External_Id, NewMap, SynchronizationMap),
 
                                                                 %% According to the response from the collision computation, I can update my personal collisions
-                                                                New_Personal_Collisions = case Collision_response of
-                                                                                    collision ->
-                                                                                        maps:put(External_Id, #{pid => External_Pid, points => Collision_points}, PersonalCollisions);
-                                                                                    no_collision ->
-                                                                                        PersonalCollisions
-                                                                                end,
+                                                                New_Personal_Collisions = utils:update_personal_collisions(Collision_response, External_Pid, External_Id, Collision_points, PersonalCollisions),
                                                                 {New_Personal_Collisions, New_Synchronization_Map}
                                                             end,
             
@@ -197,10 +191,6 @@ sync_loop(Id, Configuration, DroneState, CollisionTable, SynchronizationMap, New
                 if StartAgreement == true ->
                     agreement_loop(Id, Configuration, DroneState, NewCollisionTable, NewDrones, NewPersonalCollisions, ToNotUpdate);
                 true ->
-
-                %% Actually, probably the condition StartAgreement == 0 will be never evaluated to true since I can receive update_table messages
-                %% only when I have already sent my update_table message to other drones
-            
                     sync_loop(Id, Configuration, DroneState, NewCollisionTable, NewSynchronizationMap, NewDrones, NewPersonalCollisions, ToNotUpdate)
                 end;
             true ->
@@ -209,12 +199,12 @@ sync_loop(Id, Configuration, DroneState, CollisionTable, SynchronizationMap, New
 
         {sync_hello, FromPid, FromId, FromRoute} ->
             logging:log(Id, "Received sync_hello message from drone ~p to compute collision computation", [FromId]),
-            MyStart = get_route_start(Configuration),
+            MyStart = utils:get_route_start(Configuration),
             MyEnd = maps:get(route_end, Configuration),
             DroneSize = maps:get(drone_size, Configuration),
 
             {Collision_response, Collision_points} = collision_detection:compute_collision(DroneSize, Id, {MyStart, MyEnd}, FromId, FromRoute),
-            NewPersonalCollisions = update_personal_collisions(Collision_response, FromPid, FromId, Collision_points, PersonalCollisions),
+            NewPersonalCollisions = utils:update_personal_collisions(Collision_response, FromPid, FromId, Collision_points, PersonalCollisions),
             
             Map = maps:put(received_result, true, maps:get(FromId, SynchronizationMap)),
             NewSynchronizationMap = maps:put(FromId, Map, SynchronizationMap),
@@ -257,12 +247,11 @@ sync_loop(Id, Configuration, DroneState, CollisionTable, SynchronizationMap, New
 
             if Drone =/= not_exists ->
                     NewCollisionTable = if Action =/= remove ->
-                                            Collisions = #{
-                                                collisions => sets:from_list(FromCollidingDrones),
-                                                state => FromState,
-                                                notify_count => FromNotify_count
-                                            },
-                                            maps:put(FromId, Collisions, CollisionTable);
+                                            utils:update_entry_in_collision_table(FromId,
+                                                                        CollisionTable,
+                                                                        FromCollidingDrones,
+                                                                        FromState,
+                                                                        FromNotify_count);
                                         true ->
                                             MyEntryCollisionTable = #{
                                                 collisions => sets:del_element(FromId, maps:get(collisions, maps:get(Id, CollisionTable))),
@@ -293,7 +282,7 @@ sync_loop(Id, Configuration, DroneState, CollisionTable, SynchronizationMap, New
 agreement_loop(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions, ToNotUpdate) ->
     Policy = maps:get(policy, Configuration),
     Ordering = apply(Policy, [CollisionTable]),
-    logging:log(Id, "Ordering: ~p", Ordering),
+    logging:log(Id, "Ordering: ~p", [Ordering]),
     [Head | _Tail] = Ordering,
     if Head == Id ->
         UpdateTableBuffer = [],
@@ -305,7 +294,7 @@ agreement_loop(Id, Configuration, DroneState, CollisionTable, NewDrones, Persona
         send_notify(Id, ToBeNotified, PersonalCollisions),
         ReceivedAcks = [],
         NewDroneState = #{
-            notify_count => lists:append(maps:get(notify_count, DroneState), ToBeNotified),
+            notify_count => sets:to_list(sets:from_list(lists:append(maps:get(notify_count, DroneState), ToBeNotified))),
             state => pending,
             fallen => maps:get(fallen, DroneState)
         },
@@ -317,28 +306,14 @@ agreement_loop(Id, Configuration, DroneState, CollisionTable, NewDrones, Persona
         },
         UpdatedCollisionTable = maps:put(Id, NewMyCollisions, CollisionTable),
 
-        on_waiting_ack:handle_state(Id, Configuration, NewDroneState, UpdatedCollisionTable, NewDrones, PersonalCollisions, sets:from_list(ToBeNotified), ReceivedAcks, Ordering, ToNotUpdate)
+        on_waiting_ack:handle_state(Id, Configuration, NewDroneState, UpdatedCollisionTable, NewDrones, PersonalCollisions, sets:from_list(ToBeNotified), ReceivedAcks, ToNotUpdate)
     end.
-
-update_personal_collisions(Collision_response, FromPid, FromId, Collision_points, PersonalCollisions) ->
-    NewPersonalCollisions = case Collision_response of
-                        collision ->
-                            maps:put(FromId, #{pid => FromPid, points => Collision_points}, PersonalCollisions);
-                        no_collision ->
-                            maps:remove(FromId, PersonalCollisions)
-                    end,
-    NewPersonalCollisions.
 
 
 send_update_table(Id, PersonalCollisions, DroneState) ->
     maps:foreach(fun(External_Id, Entry) ->
             External_Pid = maps:get(pid, Entry),
-
-            CollidingDrones = maps:keys(PersonalCollisions),
-            State = maps:get(state, DroneState),
-            Notify_count = maps:get(notify_count, DroneState),
-            External_Pid ! {update_table, self(), Id, add, CollidingDrones, State, Notify_count},
-
+            utils:send_update_table_add(Id, External_Pid, PersonalCollisions, DroneState),
             logging:log(Id, "Sent update_table message to drone ~p", [External_Id])    
         end, PersonalCollisions). 
 
@@ -384,11 +359,3 @@ go_to_agreement(CollisionTable, SynchronizationMap) ->
                             end
                         end, true, FilteredMap),
     ReceivedAll.
-
-get_route_start(Configuration) ->
-    Recovery = maps:get(recovery, Configuration),
-    if Recovery == true ->
-        maps:get(recovery_start, Configuration);
-    true ->
-        maps:get(route_start, Configuration)
-    end.

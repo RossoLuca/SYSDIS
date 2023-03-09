@@ -8,9 +8,9 @@ handle_state(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalC
     SizeWaitingFrom = sets:size(WaitingFrom),
     SizeToBeAcked = sets:size(ToBeAcked),
     if SizeWaitingFrom == SizeToBeAcked ->
-        CurrentPosition = drone_main:get_route_start(Configuration),
+        CurrentPosition = utils:get_route_start(Configuration),
         NewCollisionTable = applyBufferedUpdate(Id, UpdateTableBuffer, CollisionTable, PersonalCollisions),
-        {NewDroneState, UpdatedCollisionTable} = change_state(Id, flying, DroneState, NewCollisionTable),
+        {NewDroneState, UpdatedCollisionTable} = utils:change_state(Id, flying, DroneState, NewCollisionTable),
         FlyingProcessPid = spawnFlightProcess(Id, Configuration, PersonalCollisions, sets:to_list(ToBeAcked)),
         UpdatedToBeAcked = lists:map(fun(T) -> #{id => T, received => pre} end, sets:to_list(ToBeAcked)),
         AlreadyAcked = [],
@@ -25,7 +25,7 @@ handle_state(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalC
                 %% same state
 
                 logging:log(Id, "Received sync_hello message from drone ~p to compute collision computation", [FromMainPid]),
-                MyStart = drone_main:get_route_start(Configuration),
+                MyStart = utils:get_route_start(Configuration),
                 MyEnd = maps:get(route_end, Configuration),
                 DroneSize = maps:get(drone_size, Configuration),
 
@@ -37,22 +37,16 @@ handle_state(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalC
                                 end,
 
                 {Collision_response, Collision_points} = collision_detection:compute_collision(DroneSize, Id, {MyStart, MyEnd}, FromId, FromRoute),
-                NewPersonalCollisions = drone_main:update_personal_collisions(Collision_response, FromMainPid, FromId, Collision_points, PersonalCollisions),
+                NewPersonalCollisions = utils:update_personal_collisions(Collision_response, FromMainPid, FromId, Collision_points, PersonalCollisions),
 
                 FromPid ! {sync_result, self(), Id, Collision_response, Collision_points},
                 handle_state(Id, Configuration, DroneState, CollisionTable, maps:put(FromId, FromMainPid, NewDrones), NewPersonalCollisions, UpdateTableBuffer, NewToBeAcked);
 
             {update_table, FromPid, FromId, _Action, FromCollidingDrones, FromState, FromNotify_count} ->
 
-                FindInPersonalCollisions = maps:get(FromId, PersonalCollisions, false),
-                StoredPid = if FindInPersonalCollisions =/= false ->
-                                maps:get(pid, FindInPersonalCollisions);
-                            true ->
-                                false
-                            end,
-                PidConsistency = (StoredPid =/= false) andalso (StoredPid == FromPid),
+                IsCorrectPid = utils:check_drone_pid(FromPid, FromId, PersonalCollisions),
                 
-                if PidConsistency == true ->
+                if IsCorrectPid == true ->
                         %% When a drone receive an update_table message while it's waiting for some notify messages, first of all must be seen
                         %% if this update_table message come from a drone that is alerady present in the collision table or is from 
                         %% a new drone
@@ -63,20 +57,12 @@ handle_state(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalC
                             %% has increased
                             %% This means that anyway the drone has fewer collisions than FromId and so the drone, after updating its CollisionTable,
                             %% remains in the same state
-                            Collisions = #{
-                                collisions => sets:from_list(FromCollidingDrones),
-                                state => FromState,
-                                notify_count => FromNotify_count
-                            },
-                            NewCollisionTable = maps:put(FromId, Collisions, CollisionTable),
+                            NewCollisionTable = utils:update_entry_in_collision_table(FromId, CollisionTable, FromCollidingDrones, FromState, FromNotify_count),
 
                             %% When I received an update_table message from a drone that is already in my table
                             %% actually means that this drone has fallen before, so it's important to send back 
                             %% the update_table message to him, such a way then it can send a notify to us 
-                            CollidingDrones = maps:keys(PersonalCollisions),
-                            State = maps:get(state, DroneState),
-                            Notify_count = maps:get(notify_count, DroneState),
-                            FromPid ! {update_table, self(), Id, add, CollidingDrones, State, Notify_count},
+                            utils:send_update_table_add(Id, FromPid, PersonalCollisions, DroneState),
                                         
                             handle_state(Id, Configuration, DroneState, NewCollisionTable, NewDrones, PersonalCollisions, UpdateTableBuffer, ToBeAcked);
                         true ->
@@ -98,14 +84,9 @@ handle_state(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalC
                 end;
             {notify, FromPid, FromId} ->
 
-                FindInPersonalCollisions = maps:get(FromId, PersonalCollisions, false),
-                StoredPid = if FindInPersonalCollisions =/= false ->
-                                maps:get(pid, FindInPersonalCollisions);
-                            true ->
-                                false
-                            end,
-                PidConsistency = (StoredPid =/= false) andalso (StoredPid == FromPid),
-                if PidConsistency == true ->
+                IsCorrectPid = utils:check_drone_pid(FromPid, FromId, PersonalCollisions),
+
+                if IsCorrectPid == true ->
 
                         WaitingFrom = maps:get(collisions, maps:get(Id, CollisionTable)),
                         Find = sets:is_element(FromId, WaitingFrom),
@@ -138,12 +119,7 @@ applyBufferedUpdate(Id, UpdateTableBuffer, CollisionTable, PersonalCollisions) -
             FromPid = maps:get(pid, maps:get(FromId, PersonalCollisions)),
             FromPid ! {update_table, self(), Id, add, CollidingDrones, State, Notify_count},
 
-            Collisions = #{
-                collisions => sets:from_list(FromCollidingDrones),
-                state => FromState,
-                notify_count => FromNotify_count
-            },
-            AccOut = maps:put(FromId, Collisions, AccIn),
+            AccOut = utils:update_entry_in_collision_table(FromId, AccIn, FromCollidingDrones, FromState, FromNotify_count),
             AccOut
 
         end, CollisionTable, UpdateTableBuffer),
@@ -152,7 +128,7 @@ applyBufferedUpdate(Id, UpdateTableBuffer, CollisionTable, PersonalCollisions) -
 
 spawnFlightProcess(Id, Configuration, PersonalCollisions, ToBeAcked) ->
     Height = maps:get(height, Configuration),
-    Start = drone_main:get_route_start(Configuration),
+    Start = utils:get_route_start(Configuration),
     End = maps:get(route_end, Configuration),
     Velocity = maps:get(velocity, Configuration),
     DroneSize = maps:get(drone_size, Configuration),
@@ -162,8 +138,3 @@ spawnFlightProcess(Id, Configuration, PersonalCollisions, ToBeAcked) ->
                         end, ToBeAcked),
     Pid = spawn_link(flight, init, [Id, Height, Start, End, Velocity, DroneSize, PointsToBeAcked, self()]),
     Pid.
-
-change_state(Id, NewState, DroneState, CollisionTable) ->
-    NewDroneState = maps:put(state, NewState, DroneState),
-    NewCollisionTable = maps:put(Id, maps:put(state, NewState, maps:get(Id, CollisionTable)), CollisionTable),
-    {NewDroneState, NewCollisionTable}.

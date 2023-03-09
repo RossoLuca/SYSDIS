@@ -10,14 +10,14 @@ handle_state(Id, Configuration, DroneState, CurrentPosition, CollisionTable, New
                 %% updates its PersonalCollisions (in case of collision), returns the sync_result to the other drone, but continue to remain in the
                 %% same state
                
-                MyStart = drone_main:get_route_start(Configuration),
+                MyStart = utils:get_route_start(Configuration),
                 MyEnd = maps:get(route_end, Configuration),
                 DroneSize = maps:get(drone_size, Configuration),
 
                 logging:log(Id, "Received sync_hello message from drone ~p to compute collision computation", [FromMainPid]),
                 {Collision_response, Collision_points} = collision_detection:compute_collision(DroneSize, Id, {MyStart, MyEnd}, FromId, FromRoute),
 
-                NewPersonalCollisions = drone_main:update_personal_collisions(Collision_response, FromMainPid, FromId, Collision_points, PersonalCollisions),
+                NewPersonalCollisions = utils:update_personal_collisions(Collision_response, FromMainPid, FromId, Collision_points, PersonalCollisions),
 
 
                 FindInToBeAcked = fun(Entry) ->
@@ -48,15 +48,9 @@ handle_state(Id, Configuration, DroneState, CurrentPosition, CollisionTable, New
         {update_table, FromPid, FromId, _Action, FromCollidingDrones, FromState, FromNotify_count} ->
                 logging:log(Id, "Received update_table message from drone ~p", [FromId]),
 
-                FindInPersonalCollisions = maps:get(FromId, PersonalCollisions, false),
-                StoredPid = if FindInPersonalCollisions =/= false ->
-                                maps:get(pid, FindInPersonalCollisions);
-                            true ->
-                                false
-                            end,
-                PidConsistency = (StoredPid =/= false) andalso (StoredPid == FromPid),
+                IsCorrectPid = utils:check_drone_pid(FromPid, FromId, PersonalCollisions),
                 
-                if PidConsistency == true ->
+                if IsCorrectPid == true ->
 
                     Find = maps:get(FromId, CollisionTable, not_exists),
                     if Find =/= not_exists ->
@@ -77,28 +71,19 @@ handle_state(Id, Configuration, DroneState, CurrentPosition, CollisionTable, New
                         %% With Fault tolerance this can happen!
                         logging:log(Id, "Received update_table message from drone ~p while flying", [FromId]),
 
-                        CollidingDrones = maps:keys(PersonalCollisions),
-                        State = maps:get(state, DroneState),
-                        Notify_count = maps:get(notify_count, DroneState),
-
-                        Start = drone_main:get_route_start(Configuration),
+                        Start = utils:get_route_start(Configuration),
                         End = maps:get(route_end, Configuration),
                         DroneSize = maps:get(drone_size, Configuration),
                         IntersectionPoint = maps:get(Id, maps:get(points, maps:get(FromId, PersonalCollisions))), 
                         Passed = check_intersection_passed(Start, End, CurrentPosition, IntersectionPoint, DroneSize),
 
                         if Passed == true ->
-                            FromPid ! {update_table, self(), Id, remove, none, none, none};
+                            utils:send_update_table_remove(Id, FromPid);
                         true ->
-                            FromPid ! {update_table, self(), Id, add, CollidingDrones, State, Notify_count}
+                            utils:send_update_table_add(Id, FromPid, PersonalCollisions, DroneState)
                         end,
 
-                        Collisions = #{
-                                collisions => sets:from_list(FromCollidingDrones),
-                                state => FromState,
-                                notify_count => FromNotify_count
-                            },
-                        NewCollisionTable = maps:put(FromId, Collisions, CollisionTable),
+                        NewCollisionTable = utils:update_entry_in_collision_table(FromId, CollisionTable, FromCollidingDrones, FromState, FromNotify_count),
 
                         handle_state(Id, Configuration, DroneState, CurrentPosition, NewCollisionTable, NewDrones, PersonalCollisions, ToBeAcked, FlyingProcessPid, RestConnection, AlreadyAcked);
                     true ->
@@ -107,7 +92,7 @@ handle_state(Id, Configuration, DroneState, CurrentPosition, CollisionTable, New
                         %% has already been passed
                         %% Cannot be used compute_collision function to check this because it need also the route (start, end) of other drone which
                         %% we don't have
-                        Start = drone_main:get_route_start(Configuration),
+                        Start = utils:get_route_start(Configuration),
                         End = maps:get(route_end, Configuration),
                         DroneSize = maps:get(drone_size, Configuration),
                         IntersectionPoint = maps:get(Id, maps:get(points, maps:get(FromId, PersonalCollisions))), 
@@ -117,30 +102,21 @@ handle_state(Id, Configuration, DroneState, CurrentPosition, CollisionTable, New
                             %% If the intersection has already been passed, then the current drone must send an update_table message to the other
                             %% but informing it that there's no more collision
                             logging:log(Id, "Received an update_table message from drone ~p but there's no more collision", [FromId]),
-                            FromPid ! {update_table, self(), Id, remove, none, none, none},
+                            utils:send_update_table_remove(Id, FromPid),
                         
                             handle_state(Id, Configuration, DroneState, CurrentPosition, CollisionTable, NewDrones, PersonalCollisions, ToBeAcked, FlyingProcessPid, RestConnection, AlreadyAcked);
                         true ->
                             %% If the intersection hasn't been passed, the the current drone must send a normal update_table message to the other
-                            CollidingDrones = maps:keys(PersonalCollisions),
-                            State = maps:get(state, DroneState),
-                            Notify_count = maps:get(notify_count, DroneState),
-
-                            FromPid ! {update_table, self(), Id, add, CollidingDrones, State, Notify_count},
+                            utils:send_update_table_add(Id, FromPid, PersonalCollisions, DroneState),
 
                             %% At the end, the CollisionTable must be updated with the new entry and the other drone
                             %% must be added to my collision list in my entry in the CollisionTable
-                            Collisions = #{
-                                collisions => sets:from_list(FromCollidingDrones),
-                                state => FromState,
-                                notify_count => FromNotify_count
-                            },
                             MyCollisions = #{
                                 collisions => sets:add_element(FromId, maps:get(collisions, maps:get(Id, CollisionTable))),
                                 state => maps:get(state, maps:get(Id, CollisionTable)),
                                 notify_count => maps:get(notify_count, maps:get(Id, CollisionTable))
                             },
-                            NewCollisionTable = maps:put(FromId, Collisions, CollisionTable),
+                            NewCollisionTable = utils:update_entry_in_collision_table(FromId, CollisionTable, FromCollidingDrones, FromState, FromNotify_count),
                             UpdatedCollisionTable = maps:put(Id, MyCollisions, NewCollisionTable),
                             
                             handle_state(Id, Configuration, DroneState, CurrentPosition, UpdatedCollisionTable, NewDrones, PersonalCollisions, ToBeAcked, FlyingProcessPid, RestConnection, AlreadyAcked)
@@ -152,14 +128,9 @@ handle_state(Id, Configuration, DroneState, CurrentPosition, CollisionTable, New
                 end;
         {notify, FromPid, FromId} ->
 
-            FindInPersonalCollisions = maps:get(FromId, PersonalCollisions, false),
-            StoredPid = if FindInPersonalCollisions =/= false ->
-                            maps:get(pid, FindInPersonalCollisions);
-                        true ->
-                            false
-                        end,
-            PidConsistency = (StoredPid =/= false) andalso (StoredPid == FromPid),
-            if PidConsistency == true ->
+            IsCorrectPid = utils:check_drone_pid(FromPid, FromId, PersonalCollisions),
+            
+            if IsCorrectPid == true ->
 
                 %% Must be checked that the notify message comes from someone included in my collisions
                 MyCollisions = maps:get(collisions, maps:get(Id, CollisionTable)),
@@ -167,7 +138,7 @@ handle_state(Id, Configuration, DroneState, CurrentPosition, CollisionTable, New
                 if Find == false ->
                     handle_state(Id, Configuration, DroneState, CurrentPosition, CollisionTable, NewDrones, PersonalCollisions, ToBeAcked, FlyingProcessPid, RestConnection, AlreadyAcked);
                 true ->
-                    Start = drone_main:get_route_start(Configuration),
+                    Start = utils:get_route_start(Configuration),
                     End = maps:get(route_end, Configuration),
                     DroneSize = maps:get(drone_size, Configuration),
                     IntersectionPoint = maps:get(Id, maps:get(points, maps:get(FromId, PersonalCollisions))), 
@@ -191,10 +162,9 @@ handle_state(Id, Configuration, DroneState, CurrentPosition, CollisionTable, New
                 logging:log(Id, "Received notify message from the failed drone ~p", [FromId]),
                 handle_state(Id, Configuration, DroneState, CurrentPosition, CollisionTable, NewDrones, PersonalCollisions, ToBeAcked, FlyingProcessPid, RestConnection, AlreadyAcked)
             end;
-        {update_position, _, _, New_x, New_y, Real_x, Real_y, Type} ->
+        {update_position, FlyingProcessPid, Id, New_x, New_y, Real_x, Real_y, Type} ->
             logging:log(Id, "Arrived at point (~p, ~p) of type ~p", [Real_x, Real_y, Type]),
-            Resource = "/delivery/",
-
+            
             if Type == taking_off ->
                 logging:log(Id, "Reached height of fly", []);
             Type == landing ->
@@ -208,21 +178,29 @@ handle_state(Id, Configuration, DroneState, CurrentPosition, CollisionTable, New
             
             DeliveryState = if Real_x == End_x, Real_y == End_y -> completed; true -> flying end, 
 
-            UpdatedDelivery = #{
-                id => Id,
-                pid => pid_to_list(self()),
-                state => DeliveryState,
-                start_x => Start_x,
-                start_y => Start_y,
-                current_x => Real_x,
-                current_y => Real_y,
-                end_x => End_x, 
-                end_y => End_y,
-                fallen => Fallen
-            },
-            %% TODO: Add management of the response
-            _Response = http_utils:doPost(RestConnection, Resource, UpdatedDelivery),
+            Resource = "/delivery/",
 
+            %% The update of the current position must be done here only when the state is flying
+            %% Otherwise the update of the state to completed must be done when all the needed messages are
+            %% alreby been sent
+            if DeliveryState == flying ->
+                UpdatedDelivery = #{
+                    id => Id,
+                    pid => pid_to_list(self()),
+                    state => DeliveryState,
+                    start_x => Start_x,
+                    start_y => Start_y,
+                    current_x => Real_x,
+                    current_y => Real_y,
+                    end_x => End_x, 
+                    end_y => End_y,
+                    fallen => Fallen
+                },
+                %% TODO: Add management of the response
+                _Response = http_utils:doPost(RestConnection, Resource, UpdatedDelivery);
+            true ->
+                ok
+            end,
 
             NewToBeAcked = lists:foldl(fun(T, Acc) ->
                     WasAlreadyAcked = lists:member(maps:get(id, T), AlreadyAcked),
@@ -280,7 +258,7 @@ handle_state(Id, Configuration, DroneState, CurrentPosition, CollisionTable, New
                                 {lists:append(Post, NewPre), maps:without(ToBeRemoved, CollisionTable), ToBeRemoved}
                             end,
 
-            {NewDroneState, UpdatedCollisionTable} = change_state(Id, DeliveryState, DroneState, NewCollisionTable),
+            {NewDroneState, UpdatedCollisionTable} = utils:change_state(Id, DeliveryState, DroneState, NewCollisionTable),
 
             NewAlreadyAcked = lists:append(AlreadyAcked, Acked),
 
@@ -304,13 +282,36 @@ handle_state(Id, Configuration, DroneState, CurrentPosition, CollisionTable, New
                                 DronePid ! {ack, self(), Id}
                         end, RemainingAcks),
 
+                %% It's possible that when the flight is completed there are still some update_table messages that are coming
+                %% from some new drone that sent a sync_hello with a collision result. In this case, to 
                 maps:foreach(fun(_DroneId, Entry) -> 
                             DronePid = maps:get(pid, Entry),
                             DronePid ! {update_table, self(), Id, remove, none, none, none}
                     end,PersonalCollisions),
                 
+                % When no other messages need to be sent, can be done the update of the delivery changing the state
+                % completed
+                Resource = "/delivery/",
+                {Start_x, Start_y} = maps:get(route_start, Configuration),
+                {End_x, End_y} = maps:get(route_end, Configuration),
+                Fallen = maps:get(fallen, DroneState),
+                UpdatedDelivery = #{
+                    id => Id,
+                    pid => pid_to_list(self()),
+                    state => completed,
+                    start_x => Start_x,
+                    start_y => Start_y,
+                    current_x => End_x,
+                    current_y => End_y,
+                    end_x => End_x, 
+                    end_y => End_y,
+                    fallen => Fallen
+                },
+                %% TODO: Add management of the response
+                _Response = http_utils:doPost(RestConnection, Resource, UpdatedDelivery),
 
                 logging:log(Id, "Arrived at the final point of the delivery", [])
+                
             end
     end.
 
@@ -369,8 +370,3 @@ check_intersection_passed(Start, End, CurrentPosition, IntersectionPoint, DroneS
             end
         end
     end.
-
-change_state(Id, NewState, DroneState, CollisionTable) ->
-    NewDroneState = maps:put(state, NewState, DroneState),
-    NewCollisionTable = maps:put(Id, maps:put(state, NewState, maps:get(Id, CollisionTable)), CollisionTable),
-    {NewDroneState, NewCollisionTable}.

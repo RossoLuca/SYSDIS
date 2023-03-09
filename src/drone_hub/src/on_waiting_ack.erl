@@ -1,19 +1,19 @@
 -module(on_waiting_ack).
 
--export([handle_state/10]).
+-export([handle_state/9]).
 
 
-handle_state(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions, Notified, ReceivedAcks, Ordering, ToNotUpdate) ->
+handle_state(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions, Notified, ReceivedAcks, ToNotUpdate) ->
     receive
         {sync_hello, FromPid, FromId, FromMainPid, FromRoute} ->
             logging:log(Id, "Received sync_hello message from drone ~p to compute collision computation", [FromMainPid]),
             
             DroneSize = maps:get(drone_size, Configuration),
-            MyStart = drone_main:get_route_start(Configuration),
+            MyStart = utils:get_route_start(Configuration),
             MyEnd = maps:get(route_end, Configuration),
             
             {Collision_response, Collision_points} = collision_detection:compute_collision(DroneSize, Id, {MyStart, MyEnd}, FromId, FromRoute),
-            NewPersonalCollisions = drone_main:update_personal_collisions(Collision_response, FromMainPid, FromId, Collision_points, PersonalCollisions),
+            NewPersonalCollisions = utils:update_personal_collisions(Collision_response, FromMainPid, FromId, Collision_points, PersonalCollisions),
 
             FromPid ! {sync_result, self(), Id, Collision_response, Collision_points},
 
@@ -33,31 +33,21 @@ handle_state(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalC
                             Notified
                         end,
 
-            handle_state(Id, Configuration, DroneState, CollisionTable, maps:put(FromId, FromMainPid, NewDrones), NewPersonalCollisions, NewNotified, ReceivedAcks, Ordering, NewToNotUpdate);
+            handle_state(Id, Configuration, DroneState, CollisionTable, maps:put(FromId, FromMainPid, NewDrones), NewPersonalCollisions, NewNotified, ReceivedAcks, NewToNotUpdate);
 
         {update_table, FromPid, FromId, _Action, FromCollidingDrones, FromState, FromNotify_count} ->
 
-            FindInPersonalCollisions = maps:get(FromId, PersonalCollisions, false),
-            StoredPid = if FindInPersonalCollisions =/= false ->
-                            maps:get(pid, FindInPersonalCollisions);
-                        true ->
-                            false
-                        end,
-            PidConsistency = (StoredPid =/= false) andalso (StoredPid == FromPid),
+            IsCorrectPid = utils:check_drone_pid(FromPid, FromId, PersonalCollisions),
         
-            if PidConsistency == true ->
+            if IsCorrectPid == true ->
                     Find = maps:get(FromId, CollisionTable, not_exists),
                     if Find == not_exists ->
                         logging:log(Id, "Received update_table message from the new drone ~p while waiting acks", [FromId]),
-                        Collisions = #{
-                            collisions => sets:from_list(FromCollidingDrones),
-                            state => FromState,
-                            notify_count => FromNotify_count
-                        },
                         %% Must be added a new entry in for the drone FromId in the CollisionTable
                         %% Moreover, must be update the field collision for the personal entry in the CollisionTable
                         %% adding the collision with the drone FromId
-                        NewCollisionTable = maps:put(FromId, Collisions, CollisionTable),
+                        NewCollisionTable = utils:update_entry_in_collision_table(FromId, CollisionTable, FromCollidingDrones, FromState, FromNotify_count),
+                        
                         MyCollisions = maps:get(collisions, maps:get(Id, NewCollisionTable)),
                         NewMyCollisions = sets:add_element(FromId, MyCollisions),
                         UpdatedCollisionTable = maps:put(Id, maps:put(collisions, NewMyCollisions, maps:get(Id, NewCollisionTable)), NewCollisionTable),
@@ -102,18 +92,13 @@ handle_state(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalC
                                                             maps:get(Id, UpdatedCollisionTable)),
                                                         UpdatedCollisionTable),
             
-                            handle_state(Id, Configuration, NewDroneState, CollisionTableAfterNotify, NewDrones, PersonalCollisions, NewNotified, ReceivedAcks, Ordering, ToNotUpdate);
+                            handle_state(Id, Configuration, NewDroneState, CollisionTableAfterNotify, NewDrones, PersonalCollisions, NewNotified, ReceivedAcks, ToNotUpdate);
                         true ->
-                            handle_state(Id, Configuration, DroneState, UpdatedCollisionTable, NewDrones, PersonalCollisions, Notified, ReceivedAcks, Ordering, ToNotUpdate)
+                            handle_state(Id, Configuration, DroneState, UpdatedCollisionTable, NewDrones, PersonalCollisions, Notified, ReceivedAcks, ToNotUpdate)
                         end;
 
                     true ->
-                        Collisions = #{
-                            collisions => sets:from_list(FromCollidingDrones),
-                            state => FromState,
-                            notify_count => FromNotify_count
-                        },
-                        UpdatedCollisionTable = maps:put(FromId, Collisions, CollisionTable), 
+                        UpdatedCollisionTable = utils:update_entry_in_collision_table(FromId, CollisionTable, FromCollidingDrones, FromState, FromNotify_count),
 
 
                         InToNotUpdate = sets:is_element(FromId, ToNotUpdate),
@@ -152,32 +137,27 @@ handle_state(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalC
                                                                         maps:get(Id, UpdatedCollisionTable)),
                                                                     UpdatedCollisionTable),
 
-                                handle_state(Id, Configuration, NewDroneState, CollisionTableAfterNotify, NewDrones, PersonalCollisions, NewNotified, ReceivedAcks, Ordering, NewToNotUpdate);
+                                handle_state(Id, Configuration, NewDroneState, CollisionTableAfterNotify, NewDrones, PersonalCollisions, NewNotified, ReceivedAcks, NewToNotUpdate);
                             true ->
-                                handle_state(Id, Configuration, DroneState, UpdatedCollisionTable, NewDrones, PersonalCollisions, Notified, ReceivedAcks, Ordering, NewToNotUpdate)
+                                handle_state(Id, Configuration, DroneState, UpdatedCollisionTable, NewDrones, PersonalCollisions, Notified, ReceivedAcks, NewToNotUpdate)
                             end
                         end
                     end;
             true ->
-                handle_state(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions, Notified, ReceivedAcks, Ordering, ToNotUpdate)
+                handle_state(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions, Notified, ReceivedAcks, ToNotUpdate)
             end;
         {ack, FromPid, FromId} ->
 
-            FindInPersonalCollisions = maps:get(FromId, PersonalCollisions, false),
-            StoredPid = if FindInPersonalCollisions =/= false ->
-                            maps:get(pid, FindInPersonalCollisions);
-                        true ->
-                            false
-                        end,
-            PidConsistency = (StoredPid =/= false) andalso (StoredPid == FromPid),
-            if PidConsistency == true ->
+            IsCorrectPid = utils:check_drone_pid(FromPid, FromId, PersonalCollisions),
+
+            if IsCorrectPid == true ->
             
                 logging:log(Id, "Received ack message from ~p", [FromId]),
 
                 Find = sets:is_element(FromId, Notified),
                 if Find == false ->
                     logging:log(Id, "Received an unwaited ack from drone ~p", [FromId]),
-                    handle_state(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions, Notified, ReceivedAcks, Ordering, ToNotUpdate);
+                    handle_state(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions, Notified, ReceivedAcks, ToNotUpdate);
                 true ->
                     NewReceivedAcks = [FromId | ReceivedAcks],
                     ReceivedAll = check_received_all_acks(Notified, NewReceivedAcks),
@@ -210,18 +190,18 @@ handle_state(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalC
                         send_update_table_with_collision_table(Id, NewPersonalCollisions, UpdatedCollisionTable, DroneState, ToNotUpdate),
                         drone_main:agreement_loop(Id, Configuration, DroneState, UpdatedCollisionTable, NewDrones, NewPersonalCollisions, ToNotUpdate);
                     true ->
-                        handle_state(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions, Notified, NewReceivedAcks, Ordering, ToNotUpdate)
+                        handle_state(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions, Notified, NewReceivedAcks, ToNotUpdate)
                     end
                 end;
             true ->
                 logging:log(Id, "Received ack message from the failed drone ~p", [FromId]),
-                handle_state(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions, Notified, ReceivedAcks, Ordering, ToNotUpdate)
+                handle_state(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions, Notified, ReceivedAcks, ToNotUpdate)
             end;
         {notify, _FromPid, FromId} ->
             
             logging:log(Id, "Received an unwaited notify from drone ~p while waiting acks", [FromId]),
 
-            handle_state(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions, Notified, ReceivedAcks, Ordering, ToNotUpdate)   
+            handle_state(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions, Notified, ReceivedAcks, ToNotUpdate)   
     end.
 
 check_received_all_acks(Notified, ReceivedAcks) ->
@@ -262,12 +242,7 @@ send_update_table_with_collision_table(Id, PersonalCollisions, CollisionTable, D
         InToNotUpdate = sets:is_element(External_Id, ToNotUpdate),
         if External_Id =/= Id, InToNotUpdate == false ->
             External_Pid = maps:get(pid, maps:get(External_Id, PersonalCollisions)),
-
-            CollidingDrones = maps:keys(PersonalCollisions), 
-            State = maps:get(state, DroneState),
-            Notify_count = maps:get(notify_count, DroneState),
-            External_Pid ! {update_table, self(), Id, add, CollidingDrones, State, Notify_count},
-
+            utils:send_update_table_add(Id, External_Pid, PersonalCollisions, DroneState),
             logging:log(Id, "Sent update_table message to drone ~p", [External_Id]);
         true -> 
             ok
