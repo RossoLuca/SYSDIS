@@ -11,7 +11,9 @@ start_link() ->
 init(Id) ->
     process_flag(trap_exit, true),
 
-    {drone_hub, 'drone_hub@drone_hub_host'} ! {link, {node(), self()}, Id},
+    DroneHubProcess = {list_to_atom(os:getenv("DRONE_HUB_PROCESS")), list_to_atom(os:getenv("drone_hub"))},
+
+    DroneHubProcess ! {link, {node(), self()}, Id},
     {Configuration, DroneState} = receive_configuration(),
 
     logging:log(Id, "Started", []),

@@ -5,7 +5,8 @@
 
 start_link() ->
     Pid = spawn_link(?MODULE, init, []),
-    register(drone_hub, Pid),
+    DroneHubAtom = list_to_atom(os:getenv("DRONE_HUB_PROCESS")),
+    register(DroneHubAtom, Pid),
     {ok, Pid}.
 
 init() ->

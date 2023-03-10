@@ -23,7 +23,7 @@ init( Req0=#{method := <<"GET">>}, State ) ->
                                 false
                             end
             end, AtomQs),
-    io:format("FieldsOn: ~p~n", [FieldsOn]),
+    
     case FieldsOn of
         {value, {fields, Fields}} ->
             FieldList = lists:map(fun(T) -> list_to_atom(T) end, string:tokens(Fields, ",")),
@@ -73,15 +73,6 @@ adaptResult(Fields, Result) ->
     Adapted.
 
 return_req(atomic,Result,Req0)->
-    % Response = lists:map(fun(T) ->
-    %                 Item = #{
-    %                     id => maps:get(id, T),
-    %                     pid => maps:get(pid, T)
-    %                 },
-    %                 Item
-    %             end
-    %     , Result),
-
     cowboy_req:reply(200, #{
         <<"content-type">> => <<"application/json">>
     }, jiffy:encode(Result), Req0);

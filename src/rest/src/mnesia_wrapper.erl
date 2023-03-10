@@ -25,7 +25,6 @@ transaction(last_id, Table, _Data) ->
 handle_response() ->
     receive
         {result, Status, Result} -> 
-            %io:format("~n ~p ~n ~p", [Status, Result]),
             {Status, Result}
     after 10000 ->
         #{result => aborted, info => 'db_connection_error'}

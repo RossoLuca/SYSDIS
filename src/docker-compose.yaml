@@ -10,6 +10,8 @@ services:
     build:
         context: ./repository/
         dockerfile: Dockerfile
+    volumes:
+      - ${HOST_PATH_VOLUME}:${VOLUME}
     networks:
       - ${NETWORK}
     stdin_open: true 
@@ -23,6 +25,8 @@ services:
     build:
         context: ./rest/
         dockerfile: Dockerfile
+    volumes:
+      - ${HOST_PATH_VOLUME}:${VOLUME}
     networks:
       - ${NETWORK}
     ports:
@@ -40,6 +44,9 @@ services:
     build:
       context: ./drone_hub/
       dockerfile: Dockerfile
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${HOST_PATH_VOLUME}:${VOLUME}
     networks:
       - ${NETWORK}
     stdin_open: true 
@@ -51,4 +58,3 @@ services:
 networks:
   dis_sys:
     name: ${NETWORK}
-    external: true

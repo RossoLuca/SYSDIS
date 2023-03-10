@@ -10,11 +10,11 @@ start(_Type, _Args) ->
     Routes = [{
         '_',
         [
-            { "/delivery/get_active_drones",[],active_drone_handler, [ ] },         %% returns the list of all active drones
-            { "/delivery/",delivery_handler, [] },   %% updates a delivery
-            { "/delivery/insert",create_delivery_handler, [] },   %% Creates a new delivery
-            { "/delivery/kill",drone_kill_handler, []},
-            { "/delivery/id",ids_handler, []}
+            { "/delivery/get_active_drones",[],active_drone_handler, [ ] }, %% returns the list of all active drones
+            { "/delivery/",delivery_handler, [] }, %% write or updates a delivery
+            { "/delivery/insert",create_delivery_handler, [] }, %% send a request to create a new drone for a delivery to the drone hub
+            { "/delivery/kill",drone_kill_handler, []}, %% send a requesto to the drone hub to kill the drone that handles a specific delivery
+            { "/delivery/id",ids_handler, []} %% returns the last id that was used to insert a delivery
         ]
     }],
     Dispatch = cowboy_router:compile( Routes ),

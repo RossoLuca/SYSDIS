@@ -24,6 +24,8 @@ ENV NOTIFY_THRESHOLD=4
 ENV RETRY_LIMIT=2
 
 ENV REST_ENDPOINT=rest_host 
+ENV DRONE_HUB_HOST=drone_hub
+ENV DRONE_HUB_PROCESS=drone_hub@drone_hub_host
 
 WORKDIR /drone_hub/_build/default/rel/drone_hub/bin
 ENTRYPOINT ["./drone_hub", "console"]
