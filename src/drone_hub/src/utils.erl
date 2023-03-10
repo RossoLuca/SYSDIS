@@ -6,6 +6,8 @@
 
 -export([pid_coding/1, pid_decoding/1]).
 
+-export([stop_container/1, remove_container/1]).
+
 get_route_start(Configuration) ->
     Recovery = maps:get(recovery, Configuration),
     if Recovery == true ->
@@ -68,3 +70,11 @@ pid_decoding(ListPid) ->
     BinaryPid = erlang:list_to_binary(ListPid),
     Pid = erlang:binary_to_term(BinaryPid),
     Pid.
+
+stop_container(Id) ->
+    Command = "docker -H unix:///var/run/docker.sock stop drone_" ++ integer_to_list(Id),
+    _StdOut = os:cmd(Command).
+
+remove_container(Id) ->
+    Command = "docker -H unix:///var/run/docker.sock rm drone_" ++ integer_to_list(Id),
+    _StdOut = os:cmd(Command).

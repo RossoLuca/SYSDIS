@@ -3,20 +3,23 @@
 -export([transaction/3]).
 
 transaction(write, Table, Data) ->
-    % DbNode = os:getenv{"DB_HOST","error"},
-    {db_listener, 'db@db_host'} ! {write, {node(), self()}, Table, Data},
+    Process = get_db_process(),
+    Process ! {write, {node(), self()}, Table, Data},
     handle_response();
 
 transaction(select, Table, Spec) ->
-    {db_listener, 'db@db_host'} ! {select, {node(), self()}, Table, Spec},
+    Process = get_db_process(),
+    Process ! {select, {node(), self()}, Table, Spec},
     handle_response();
 
 transaction(read_by_id, Table, Id) ->
-    {db_listener, 'db@db_host'} ! {read_by_id, {node(), self()}, Table, Id},
+    Process = get_db_process(),
+    Process ! {read_by_id, {node(), self()}, Table, Id},
     handle_response();    
 
 transaction(last_id, Table, _Data) -> 
-    {db_listener, 'db@db_host'} ! {last_id, {node(), self()}, Table, _Data},
+    Process = get_db_process(),
+    Process ! {last_id, {node(), self()}, Table, _Data},
     handle_response().
 
 handle_response() ->
@@ -27,3 +30,8 @@ handle_response() ->
     after 10000 ->
         #{result => aborted, info => 'db_connection_error'}
     end.
+
+get_db_process() ->
+    Process = list_to_atom(os:getenv("DB_PROCESS")),
+    Host = list_to_atom(os:getenv("DB_HOST")),
+    {Process, Host}.

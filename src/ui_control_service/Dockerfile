@@ -24,8 +24,9 @@ RUN rm -r ebin/
 WORKDIR /ui_control_service
 RUN make
 
+ENV REST_ENDPOINT=rest_host
+ENV WATCH_DEFAULT_TIMEOUT=5000
+
 WORKDIR /ui_control_service/_rel/ui_control_service_release/bin/
 
 ENTRYPOINT ["./ui_control_service_release-1", "console"]
-
-#ENTRYPOINT ["/bin/bash"]

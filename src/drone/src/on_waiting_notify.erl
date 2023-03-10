@@ -14,7 +14,7 @@ handle_state(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalC
         FlyingProcessPid = spawnFlightProcess(Id, Configuration, PersonalCollisions, sets:to_list(ToBeAcked)),
         UpdatedToBeAcked = lists:map(fun(T) -> #{id => T, received => pre} end, sets:to_list(ToBeAcked)),
         AlreadyAcked = [],
-        RestConnection = http_utils:createConnection(),
+        RestConnection = http_utils:createConnection(maps:get(rest_endpoint, Configuration)),
         logging:log(Id, "Started to fly", []),
         flying:handle_state(Id, Configuration, NewDroneState, CurrentPosition, UpdatedCollisionTable, NewDrones, PersonalCollisions, UpdatedToBeAcked, FlyingProcessPid, RestConnection, AlreadyAcked);
     true ->

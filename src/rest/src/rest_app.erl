@@ -15,7 +15,6 @@ start(_Type, _Args) ->
             { "/delivery/insert",create_delivery_handler, [] },   %% Creates a new delivery
             { "/delivery/kill",drone_kill_handler, []},
             { "/delivery/id",ids_handler, []}
-            % ,{ "/delivery/get_adjancesies", adjancesies_handler, []}
         ]
     }],
     Dispatch = cowboy_router:compile( Routes ),

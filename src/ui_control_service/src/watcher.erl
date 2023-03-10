@@ -15,21 +15,32 @@ start(Id, Timeout, Connection) ->
 loop(Id, Timeout, Conn, OldState) -> 
     Resource = "/delivery/?id=",
     Query = Resource ++ integer_to_list(Id),
-    Delivery = lists:nth(1, http_utils:doGet(Conn, Query)),
-    Del = utils:toMap(Delivery),
+    case http_utils:doGet(Conn, Query) of
+        {error, timeout} ->
+            io:format("Rest API isn't reachable at the moment. Watcher process for the delivery ~p will now be closed.~nTry again later to watch the delivery", [Id]);
+        Response ->
+            if length(Response) > 0 ->
+                Delivery = lists:nth(1, Response),
+                Del = utils:toMap(Delivery),
 
-    NewState = updateState(Id, OldState, Del),
-    State = maps:get(state, NewState),
+                NewState = updateState(Id, OldState, Del),
+                State = maps:get(state, NewState),
 
-    if State == completed ->
-        io:format("The delivery ~p has arrived at the final point (~p, ~p) ~n", [Id, maps:get(end_x, NewState), maps:get(end_y, NewState)]);
-    true ->
-        receive
-            after Timeout -> ok
-        end,
-        loop(Id, Timeout, Conn, NewState)
+                if State == completed ->
+                    io:format("The drone assigned to the delivery ~p has arrived at the final point (~p, ~p) ~n", [Id, maps:get(end_x, NewState), maps:get(end_y, NewState)]);
+                true ->
+                    receive
+                        after Timeout -> ok
+                    end,
+                    loop(Id, Timeout, Conn, NewState)
+                end;
+            true ->
+                receive
+                        after Timeout -> ok
+                end,
+                loop(Id, Timeout, Conn, OldState)
+            end
     end.
-
 
 updateState(Id, OldState, CurrentState) ->
     St = maps:get(state, OldState),
@@ -67,7 +78,7 @@ compare(Id, Old, Current) ->
 
 update_stato(Id, Old, Current) ->
     if Old =/= Current ->
-        io:format("The delivery ~p is now in state ~p~n", [Id, Current]),
+        io:format("The drone that is dealing with the delivery ~p is now in state ~p~n", [Id, Current]),
         Current;
     true ->
         Old
@@ -82,7 +93,10 @@ update_current_position({OldX, OldY}, {CurrX, CurrY}) ->
 
 check_drone_fall(Id, Old, Current) ->
     if Old =/= Current ->
-        io:format("## WARNING! ##~nThe drone assigned to the the delivery ~p has fall.~nThe delivery will now be completed from a new drone.~n", [Id]),
+        TimestampList = string:tokens(Current, ";"),
+        LastTime = list_to_integer(lists:last(TimestampList)),
+        {{_Year, _Month, _Day}, {Hours, Minutes, Seconds}} = calendar:system_time_to_local_time(LastTime, 1000000),
+        io:format("## WARNING! ##~nThe drone assigned to the the delivery ~p has fall at time ~p:~p:~p.~nThe delivery will now be completed from a new drone.~n", [Id, Hours, Minutes, Seconds]),
         Current;
     true ->
         Old

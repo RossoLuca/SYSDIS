@@ -1,11 +1,16 @@
 -module(http_utils).
 
--define(ENDPOINT, "rest_host").
-
 -export([createConnection/0, doGet/2, doPost/3]).
 
 createConnection() -> 
-    case gun:open(?ENDPOINT, 8080) of
+    Endpoint = os:getenv("REST_ENDPOINT", undefined),
+    if Endpoint == undefined ->
+        logging:log("Rest endpoint is not defined. Please define it inside the Dockerfile."),
+        exit(self(), kill);
+    true ->
+        ok
+    end,
+    case gun:open(Endpoint, 8080) of
         {ok, Connection} -> 
             Connection;
         {error, timeout} ->
@@ -21,7 +26,9 @@ doGet(Connection, Path) ->
             no_data;
         {response, nofin, _Status, _Headers} ->
             {ok, Body} = gun:await_body(Connection, StreamRef),
-            jiffy:decode(Body, [return_maps])
+            jiffy:decode(Body, [return_maps]);
+        {error, timeout} ->
+                {error, timeout}
     end.
 
 
@@ -35,5 +42,7 @@ doPost(Connection, Path, Data) ->
             no_data;
         {response, nofin, _Status, _Headers} ->
             {ok, ResponseBody} = gun:await_body(Connection, StreamRef),
-            jiffy:decode(ResponseBody, [return_maps])
+            jiffy:decode(ResponseBody, [return_maps]);
+        {error, timeout} ->
+            {error, timeout}
     end.

@@ -87,6 +87,7 @@ loop(IdMax, Spawned, MonitoredDrones, Id_to_Pid, EnvironmentVariables) ->
             
             
             FromPid ! {config, CodedPid, 
+                                os:getenv("REST_ENDPOINT"),
                                 maps:get(velocity, EnvironmentVariables), maps:get(drone_size, EnvironmentVariables), 
                                 maps:get(notify_threshold, EnvironmentVariables), Policy, RecoveryFlag, 
                                 maps:get(fly_height, EnvironmentVariables), {StartX, StartY}, {CurrentX, CurrentY}, {EndX, EndY}, State, Fallen},
@@ -103,7 +104,6 @@ loop(IdMax, Spawned, MonitoredDrones, Id_to_Pid, EnvironmentVariables) ->
                 if DEV_MODE == true ->
                     spawnLocalDrone(Id);
                 true ->
-                    % spawn(?MODULE, spawnDrone, [Id, true])
                     spawnDrone(Id, true)
                 end,
                 NewSpawned = maps:put(Id, Delivery, Spawned),
@@ -112,7 +112,8 @@ loop(IdMax, Spawned, MonitoredDrones, Id_to_Pid, EnvironmentVariables) ->
             true ->
                 DroneId = maps:get(FromPid, MonitoredDrones),
                 logging:log("Drone ~p has completed its task", [DroneId]),
-                stop_container(DroneId),
+                utils:stop_container(DroneId),
+                utils:remove_container(DroneId),
                 NewMonitoredDrones = maps:remove(DroneId, MonitoredDrones),
                 loop(IdMax, Spawned, NewMonitoredDrones, Id_to_Pid, EnvironmentVariables)
             end;
@@ -124,7 +125,7 @@ loop(IdMax, Spawned, MonitoredDrones, Id_to_Pid, EnvironmentVariables) ->
 
                 DEV_MODE = list_to_atom(os:getenv("DEV_MODE", "false")),
                 if DEV_MODE =/= true ->
-                    stop_container(Id);
+                    utils:stop_container(Id);
                 true ->
                     ok
                 end,
@@ -154,9 +155,6 @@ spawnDrone(Id, Recovery) ->
     Volume = "dis_sys",
     Destination = "/dis_sys",
     Image = "drone_image",
-    % Command = "docker -H unix:///var/run/docker.sock run --rm -d --name " ++ ContainerName ++ 
-    %                 " -h " ++ HostName ++ " --env " ++ EnvVariable ++
-    %                 " --net " ++ Network ++ " " ++ Image,
     if Recovery =/= true ->
         Command = "docker -H unix:///var/run/docker.sock run -d --name " ++ ContainerName ++ 
                     " --mount source=" ++ Volume ++ ",destination=" ++ Destination ++
@@ -171,9 +169,7 @@ spawnDrone(Id, Recovery) ->
     end.
     % logging:log(StdOut).
 
-stop_container(Id) ->
-    Command = "docker -H unix:///var/run/docker.sock stop drone_" ++ integer_to_list(Id),
-    _StdOut = os:cmd(Command).
+
 
 % spawnLocalDrone can be used for testing to spawn drones in local
 spawnLocalDrone(Id) ->

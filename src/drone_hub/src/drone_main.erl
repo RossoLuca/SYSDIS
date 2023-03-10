@@ -1,5 +1,5 @@
 -module(drone_main).
--define(RETRY_LIMIT,2).
+
 -export([start_link/0, init/1, drone_synchronizer/8, send_update_table/3, agreement_loop/7]).
 
 start_link() ->
@@ -17,7 +17,7 @@ init(Id) ->
     logging:log(Id, "Started", []),
 
     Route = {utils:get_route_start(Configuration), maps:get(route_end, Configuration)},
-    case http_utils:createConnection() of
+    case http_utils:createConnection(maps:get(rest_endpoint, Configuration)) of
         connection_timed_out ->
             logging:log(Id, "Warning: Rest service not reachable", []);
         Connection ->
@@ -91,9 +91,10 @@ init(Id) ->
 
 receive_configuration() ->
     receive
-        {config, CodedPid, Velocity, Drone_size, Notify_Threshold, Policy, Recovery, Height, Start, Current, End, State, Fallen} ->
+        {config, CodedPid, RestEndpoint, Velocity, Drone_size, Notify_Threshold, Policy, Recovery, Height, Start, Current, End, State, Fallen} ->
             Config = #{
                 coded_pid => CodedPid, 
+                rest_endpoint => RestEndpoint,
                 height => Height,
                 route_start => Start,
                 route_end => End,
@@ -120,7 +121,8 @@ drone_synchronizer(Id, MainPid, DroneSize, Route, External_Id, External_Pid, Ret
 
             MainPid ! {collision_response, External_Pid, External_Id, Collision_response, Collision_points}
         after 3000 ->
-            if Retry_count > ?RETRY_LIMIT ->
+            RetryLimit = list_to_integer(os:getenv("RETRY_LIMIT", "2")),
+            if Retry_count > RetryLimit ->
                 MainPid ! {collision_response, External_Pid, External_Id, no_collision, none};
             true ->
                 drone_synchronizer(Id, MainPid, DroneSize, Route, External_Id, External_Pid, Retry_count + 1, Message)

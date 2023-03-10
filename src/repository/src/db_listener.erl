@@ -4,7 +4,8 @@
 
 start_link(_Name) -> 
     Pid = spawn_link(?MODULE, loop, []),
-    register(db_listener, Pid),
+    DbProcess = list_to_atom(os:getenv("DB_PROCESS")),  
+    register(DbProcess, Pid),
     {ok, Pid}.
 
 

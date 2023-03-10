@@ -11,7 +11,21 @@ printDelivery(Delivery) ->
     io:format("\tCurrent position on y axes: ~p~n", [maps:get(<<"current_y">>, Delivery)]),
     io:format("\tFinal delivery position on x axes: ~p~n", [maps:get(<<"end_x">>, Delivery)]),
     io:format("\tFinal delivery position on y axes: ~p~n", [maps:get(<<"end_y">>, Delivery)]),
-    io:format("\tFallen: ~p~n", [maps:get(<<"fallen">>, Delivery)]).
+    Fallen = maps:get(<<"fallen">>, Delivery),
+    if Fallen =/= " " ->
+        printFallen(Fallen);
+    true ->
+        io:format("\tFallen: ~p~n", [maps:get(<<"fallen">>, Delivery)])
+    end.
+
+printFallen(Fallen) ->
+    io:format("\tFallen: "),
+    TimestampList = string:tokens(Fallen, ";"),
+    lists:foreach(fun(Timestap) -> 
+            {{_, _, _}, {H, M, S}} = calendar:system_time_to_local_time(list_to_integer(Timestap), 1000000),
+            io:format("~p:~p:~p\t", [H, M, S])
+        end,TimestampList),
+    io:format("~n").
 
 printNewDelivery(Delivery) ->
     Id = maps:get(<<"id">>, Delivery),

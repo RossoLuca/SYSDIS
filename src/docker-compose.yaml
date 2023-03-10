@@ -3,24 +3,28 @@ version: '3.5'
 
 services:
   db:
+    env_file: 
+      - db-variables.env
     container_name: db
-    hostname: db_host
+    hostname: ${DB_HOST}
     build:
         context: ./repository/
         dockerfile: Dockerfile
     networks:
-      - dis_sys
+      - ${NETWORK}
     stdin_open: true 
     tty: true
       
   rest:
+    env_file: 
+      - rest-variables.env
     container_name: rest
-    hostname: rest_host
+    hostname: ${REST_HOST}
     build:
         context: ./rest/
         dockerfile: Dockerfile
     networks:
-      - dis_sys
+      - ${NETWORK}
     ports:
       - "8080:8080"
     stdin_open: true 
@@ -29,15 +33,15 @@ services:
       - db
   
   drone_hub:
-    environment: 
-      - DEV_MODE=true
+    env_file: 
+      - drone-hub-variables.env
     container_name: drone_hub
-    hostname: drone_hub_host
+    hostname: ${DRONE_HUB_HOST}
     build:
       context: ./drone_hub/
       dockerfile: Dockerfile
     networks:
-      - dis_sys
+      - ${NETWORK}
     stdin_open: true 
     tty: true
     depends_on:
@@ -46,5 +50,5 @@ services:
 
 networks:
   dis_sys:
-    name: dis_sys
+    name: ${NETWORK}
     external: true

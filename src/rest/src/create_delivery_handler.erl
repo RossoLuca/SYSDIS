@@ -41,10 +41,11 @@ init(Req0, State) ->
     {ok, Req, State}.
 
 coordinates_check({Start_x,Start_y,End_x,End_y}) ->
+    MaxSize = list_to_float(os:getenv("MAX_SIZE", "1000.0")),
     case {Start_x,End_x,Start_y,End_y} of
         {Start_x,End_x,Start_y,End_y} when Start_x < 0; Start_y < 0;End_x < 0 ; End_y < 0 ->
             {coordinateserror,false};
-        {Start_x,End_x,Start_y,End_y} when Start_x > ?MAXSIZE; Start_y > ?MAXSIZE;End_x > ?MAXSIZE ; End_y > ?MAXSIZE ->
+        {Start_x,End_x,Start_y,End_y} when Start_x > MaxSize; Start_y > MaxSize; End_x > MaxSize; End_y > MaxSize ->
             {coordinateserror,false};
         {Start_x,End_x,Start_y,End_y} when Start_x == End_x , Start_y == End_y ->
             {degeneratedeliveryerror,false};

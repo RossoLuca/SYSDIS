@@ -1,17 +1,30 @@
 -module(http_utils).
 
-%-define(ENDPOINT, "localhost").
--define(ENDPOINT, "rest_host").
+-export([createConnection/0, createConnection/1, doGet/2, doPost/3]).
 
--export([createConnection/0, doGet/2, doPost/3]).
-
-createConnection() -> 
-    case gun:open(?ENDPOINT, 8080) of
+createConnection() ->
+    Endpoint = os:getenv("REST_ENDPOINT", undefined),
+    if Endpoint == undefined ->
+        logging:log("Rest endpoint is not defined. Please define it inside the Dockerfile."),
+        exit(self(), kill);
+    true ->
+        ok
+    end,
+    case gun:open(Endpoint, 8080) of
         {ok, Connection} -> 
             Connection;
         {error, timeout} ->
             connection_timed_out
     end.
+
+createConnection(Endpoint) ->
+    case gun:open(Endpoint, 8080) of
+        {ok, Connection} -> 
+            Connection;
+        {error, timeout} ->
+            connection_timed_out
+    end.
+    
 
 doGet(Connection, Path) -> 
     StreamRef = gun:get(Connection, Path, [
@@ -22,7 +35,10 @@ doGet(Connection, Path) ->
             no_data;
         {response, nofin, _Status, _Headers} ->
             {ok, Body} = gun:await_body(Connection, StreamRef),
-            jiffy:decode(Body, [return_maps])
+            jiffy:decode(Body, [return_maps]);
+        {error, timeout} ->
+            logging:log("The Rest API isn't reachable in this moment. Drone hub will be restarted to do another attempt"),
+            exit(self(), kill)
     end.
 
 

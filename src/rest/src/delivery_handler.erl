@@ -3,9 +3,7 @@
 -include_lib("stdlib/include/qlc.hrl").
 -include( "records.hrl" ).
 
-
 -export([init/2]).
--define(MAXSIZE,1000.0).
 
 init( Req0=#{method := <<"POST">>}, State0 ) ->
 	{ok, Data, Req1} = cowboy_req:read_body(Req0),
@@ -35,8 +33,6 @@ init( Req0=#{method := <<"POST">>}, State0 ) ->
         fallen = Fallen
     },
 
-    % erlang:display(Delivery),
-    % io:format("~n~p~n", [delivery_check(Delivery)]),
     case delivery_check(Delivery) of
         {ok,_} ->
             {Status, Result} = mnesia_wrapper:transaction(write, delivery, Delivery),
@@ -88,10 +84,8 @@ read_by_id(Id, Req, State) ->
     Response = return_req(Status,Result,Req),
     {ok, Response, State}.
 
-% select(AtomQs, Req, State) -> 
-%     ok.
-
 delivery_check(Del) ->
+    MaxSize = list_to_float(os:getenv("MAX_SIZE", "1000.0")),
     Id = Del#delivery.id,
     Start_x = Del#delivery.start_x,
     End_x = Del#delivery.end_x,
@@ -102,7 +96,7 @@ delivery_check(Del) ->
             {iderror,false};
         {_,Start_x,End_x,Start_y,End_y} when Start_x < 0; Start_y < 0;End_x < 0 ; End_y < 0 ->
             {coordinateserror,false};
-        {_,Start_x,End_x,Start_y,End_y} when Start_x > ?MAXSIZE; Start_y > ?MAXSIZE;End_x > ?MAXSIZE ; End_y > ?MAXSIZE ->
+        {_,Start_x,End_x,Start_y,End_y} when Start_x > MaxSize; Start_y > MaxSize; End_x > MaxSize; End_y > MaxSize ->
             {coordinateserror,false};
         {_,Start_x,End_x,Start_y,End_y} when Start_x == End_x , Start_y == End_y ->
             {degeneratedeliveryerror,false};
