@@ -3,9 +3,9 @@
 -include_lib("stdlib/include/qlc.hrl").
 -include( "records.hrl" ).
 -export([init/2]).
--define(MAXSIZE,1000.0).
 
 init( Req0=#{method := <<"POST">>}, State ) ->
+    logging:log("Received POST request in create_delivery_handler"),
     {ok, Data, Req1} = cowboy_req:read_body(Req0),
     DecodedTuple = jiffy:decode( Data, [return_maps]),
 
@@ -18,9 +18,7 @@ init( Req0=#{method := <<"POST">>}, State ) ->
     
     case coordinates_check({Start_x,Start_y,End_x,End_y}) of 
         {ok,_} ->
-            erlang:display(Start_y),
             Id = drone_hub_wrapper:notify(create,{Start_x,Start_y,End_x,End_y}),
-            erlang:display(Id),
             Req = cowboy_req:reply(200, #{
                 <<"content-type">> => <<"application/json">>
             }, jiffy:encode(#{result => ok, id => Id}), Req1),

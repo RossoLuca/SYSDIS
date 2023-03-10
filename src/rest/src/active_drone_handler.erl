@@ -5,13 +5,14 @@
 -export([init/2]).
 
 init( Req0=#{method := <<"GET">>}, State ) ->
+    logging:log("Received GET request in active_drone_handler"),
+
     MatchHead = #delivery{id='$1',state='$2',pid='$3', _='_'},
     GuardActive = {'=/=', '$2',completed},
     MatchResult = ['$_'],
 
     MatchSpecs = [{MatchHead, [GuardActive],[MatchResult]}],
     
-    io:format("~p~n", [MatchSpecs]),
     {Status, Result} = mnesia_wrapper:transaction(select, delivery, MatchSpecs),
 
     ParsedQs = cowboy_req:parse_qs(Req0),
@@ -27,7 +28,6 @@ init( Req0=#{method := <<"GET">>}, State ) ->
     case FieldsOn of
         {value, {fields, Fields}} ->
             FieldList = lists:map(fun(T) -> list_to_atom(T) end, string:tokens(Fields, ",")),
-            io:format("Use only these fields: ~p~n", [FieldList]),
             if Status == atomic, length ->
                 ResultLength = length(Result),
                 if ResultLength > 0 ->

@@ -5,8 +5,8 @@
 -export([init/2]).
 
 init( Req0=#{method := <<"GET">>}, State ) ->
+    logging:log("Received GET request in drone_kill_handler"),
     ParsedQs = cowboy_req:parse_qs(Req0),
-    io:format("~n~p", [ParsedQs]),
     AtomQs = [{binary_to_atom(K), binary_to_list(V)} || {K, V} <- ParsedQs],
     case lists:search(fun({Key, _Value}) -> 
                             case Key of

@@ -6,6 +6,7 @@
 -export([init/2]).
 
 init( Req0=#{method := <<"POST">>}, State0 ) ->
+    logging:log("Received POST request in delivery_handler"),
 	{ok, Data, Req1} = cowboy_req:read_body(Req0),
     DecodedTuple = jiffy:decode( Data , [return_maps]),
 
@@ -44,10 +45,9 @@ init( Req0=#{method := <<"POST">>}, State0 ) ->
     end;
 
 init( Req0=#{method := <<"GET">>}, State0 ) ->
+    logging:log("Received GET request in delivery_handler"),
     ParsedQs = cowboy_req:parse_qs(Req0),
-    io:format("~n~p", [ParsedQs]),
     AtomQs = [{binary_to_atom(K), binary_to_list(V)} || {K, V} <- ParsedQs],
-    io:format("~n~p", [AtomQs]),
     
     case lists:search(fun({Key, _Value}) -> 
                             case Key of
@@ -78,7 +78,6 @@ return_req(aborted,_,Req0)->
 
 read_by_id(Id, Req, State) ->
     {Status, Result} = mnesia_wrapper:transaction(read_by_id, delivery, list_to_integer(Id)),
-    io:format("~n~p~n~p", [Status, Result]),
     Response = return_req(Status,Result,Req),
     {ok, Response, State}.
 

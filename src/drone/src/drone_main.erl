@@ -296,8 +296,6 @@ sync_loop(Id, Configuration, DroneState, CollisionTable, SynchronizationMap, New
     end.
 
 agreement_loop(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalCollisions, ToNotUpdate) ->
-    %Policy = maps:get(policy, Configuration),
-    % Ordering = apply(Policy, [CollisionTable, maps:get(notify_threshold, Configuration)]),
     Ordering = drone_policy:compute_policy(CollisionTable, maps:get(notify_threshold, Configuration)),
     logging:log(Id, "Ordering: ~p", [Ordering]),
     [Head | _Tail] = Ordering,

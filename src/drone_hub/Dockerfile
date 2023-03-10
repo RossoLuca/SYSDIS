@@ -17,15 +17,5 @@ COPY README.md .
 RUN rebar3 compile
 RUN rebar3 release
 
-ENV VELOCITY=5.0
-ENV DRONE_SIZE=1.0
-ENV FLY_HEIGHT=50.0
-ENV NOTIFY_THRESHOLD=4
-ENV RETRY_LIMIT=2
-
-ENV REST_ENDPOINT=rest_host 
-ENV DRONE_HUB_HOST=drone_hub
-ENV DRONE_HUB_PROCESS=drone_hub@drone_hub_host
-
 WORKDIR /drone_hub/_build/default/rel/drone_hub/bin
 ENTRYPOINT ["./drone_hub", "console"]

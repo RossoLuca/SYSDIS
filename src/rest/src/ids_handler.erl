@@ -5,6 +5,7 @@
 -export([init/2]).
 
 init(Req=#{method := <<"GET">>}, State) ->
+    logging:log("Received GET request in ids_handler"),
     Table = delivery,
     {Status, Result} = mnesia_wrapper:transaction(last_id, Table, none),
 

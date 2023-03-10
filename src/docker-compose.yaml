@@ -58,3 +58,4 @@ services:
 networks:
   dis_sys:
     name: ${NETWORK}
+    external: true
