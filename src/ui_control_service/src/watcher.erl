@@ -17,7 +17,7 @@ loop(Id, Timeout, Conn, OldState) ->
     Query = Resource ++ integer_to_list(Id),
     case http_utils:doGet(Conn, Query) of
         {error, timeout} ->
-            io:format("Rest API isn't reachable at the moment. Watcher process for the delivery ~p will now be closed.~nTry again later to watch the delivery", [Id]);
+            io:format("Rest API isn't reachable at the moment. Watcher process for the delivery ~p will now be closed.~nTry again later to watch the delivery~n", [Id]);
         Response ->
             if length(Response) > 0 ->
                 Delivery = lists:nth(1, Response),

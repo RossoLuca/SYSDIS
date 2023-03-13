@@ -2,6 +2,7 @@
 
 -export([createConnection/0, createConnection/1, doGet/2, doPost/3]).
 
+% Returns an HTTP connection to the Rest API
 createConnection() ->
     Endpoint = os:getenv("REST_ENDPOINT", undefined),
     if Endpoint == undefined ->
@@ -17,6 +18,7 @@ createConnection() ->
             connection_timed_out
     end.
 
+% Returns an HTTP connection to the Rest API on the endpoint Endpoint
 createConnection(Endpoint) ->
     case gun:open(Endpoint, 8080) of
         {ok, Connection} -> 
@@ -25,7 +27,7 @@ createConnection(Endpoint) ->
             connection_timed_out
     end.
     
-
+% Using Connection, make an HTTP GET request to the Rest API on the path Path
 doGet(Connection, Path) -> 
     StreamRef = gun:get(Connection, Path, [
         {<<"accept">>, "application/json"}
@@ -37,11 +39,11 @@ doGet(Connection, Path) ->
             {ok, Body} = gun:await_body(Connection, StreamRef),
             jiffy:decode(Body, [return_maps]);
         {error, timeout} ->
-            logging:log("The Rest API isn't reachable in this moment. Drone hub will be restarted to do another attempt"),
+            logging:log("The Rest API isn't reachable in this moment. Process will be restarted to do another attempt"),
             exit(self(), kill)
     end.
 
-
+% Using Connection, make an HTTP POST request to the Rest API on the path Path including Data inside the body
 doPost(Connection, Path, Data) ->
     Body = jiffy:encode(Data),
     StreamRef = gun:post(Connection, Path, [
@@ -52,5 +54,8 @@ doPost(Connection, Path, Data) ->
             no_data;
         {response, nofin, _Status, _Headers} ->
             {ok, ResponseBody} = gun:await_body(Connection, StreamRef),
-            jiffy:decode(ResponseBody)
+            jiffy:decode(ResponseBody);
+        {error, timeout} ->
+            logging:log("The Rest API isn't reachable in this moment. Process will be restarted to do another attempt"),
+            exit(self(), kill)
     end.

@@ -17,7 +17,15 @@ handle_state(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalC
 
             FromPid ! {sync_result, self(), Id, Collision_response, Collision_points},
 
-
+            %% Is checked if the drone that sent the sync_hello is already stored in our CollisionTable
+            %% If this is the case, this means that sync_hello has been received from a recovery drone
+            %% So, it must be added to the ToNotUpdate buffer
+            %% ToNotUpdate is used in order to avoid to send an update_table, when all acks have been received
+            %% to drones inside it.
+            %% This is done because it is possible that an erroneus update_table message is sent to a recovery drone that is
+            %% in its sync_phase.
+            %% Indeed, whenever is received an update_table message from someone that is include in ToNotUpdate, then it
+            %% is removed from this buffer and treated like all the other drones
             AlreadyInCollisionTable = maps:get(FromId, CollisionTable, false),
             NewToNotUpdate = if AlreadyInCollisionTable =/= false ->
                                 sets:add_element(FromId, ToNotUpdate);
@@ -74,7 +82,9 @@ handle_state(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalC
                                     ok
                                 end
                             end, UpdatedCollisionTable),
-
+                        
+                        %% Must be checked if also a notify can be sent to the drone FromId 
+                        %% (but only if the number of already sent notify is less than the Notify_Threshold)
                         Send = check_send_notify(FromId, UpdatedCollisionTable, Notified, Configuration, DroneState),
                         
                         if Send == true ->
@@ -118,6 +128,8 @@ handle_state(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalC
                             go_to_agreement(Id, Configuration, DroneState, UpdatedCollisionTable, PersonalCollisions, NewDrones, ReceivedAcks, NewToNotUpdate);
                         true ->
                             
+                            %% Must be checked if also a notify can be sent to the drone FromId 
+                            %% (but only if the number of already sent notify is less than the Notify_Threshold)
                             Send = check_send_notify(FromId, UpdatedCollisionTable, Notified, Configuration, DroneState),                    
                     
                             if Send == true ->
@@ -163,6 +175,9 @@ handle_state(Id, Configuration, DroneState, CollisionTable, NewDrones, PersonalC
                     ReceivedAll = check_received_all_acks(Notified, NewReceivedAcks),
 
                     if ReceivedAll == true ->
+                        %% When all the awaiting acks have been received, the CollisionTable is updated removing the entry of the drones
+                        %% for which we received an ack, and also updating the personal entry in the CollisionTable removing from the collision field
+                        %% the drones for which we received the ack 
                         NewCollisionTable = maps:fold(fun(K, V, Map) -> 
                                                 FindDrone = lists:member(K, NewReceivedAcks),
                                                 if FindDrone == true ->

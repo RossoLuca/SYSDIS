@@ -2,6 +2,18 @@
 
 -export([compute_policy/2]).
 
+%% Returns an ordering for the drones contained in the CollisionTable
+%% Notify_threshold --> integer
+%% CollisiontTable -->
+%                    #{Id => 
+%                        	#{collisions => sets:from_list(<List of colliding drones>),
+%                        	  notify_count => <list of drones to which has been sent a notify message> --> It never contains duplicate drones
+%                        	  state => pending | flying
+%                        	}
+%                          	....
+%                        	....
+%                        	....
+%                    }
 compute_policy(CollisionTable, Notify_Threshold) ->
     FirstRule = maps:fold(fun(K, V, AccIn) ->
                 State = maps:get(state, V),

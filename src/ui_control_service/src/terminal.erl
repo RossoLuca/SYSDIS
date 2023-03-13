@@ -103,15 +103,20 @@ watch_delivery(Id) ->
 kill_drone(Id) when is_integer(Id) -> 
     case http_utils:createConnection() of
         connection_timed_out ->
-            io:format("At the moment the task cannot be started.~nTry again later!~n");
+            io:format("At the moment the drone cannot be killed.~nTry again later!~n");
         Connection ->
             Resource = "/delivery/kill/?id=",
             Query = Resource ++ integer_to_list(Id),
             case http_utils:doGet(Connection, Query) of 
                 {error, timeout} -> 
-                    io:format("At the moment the task cannot be started.~nTry again later!~n");
+                    io:format("At the moment the drone cannot be killed.~nTry again later!~n");
                 Response ->                            
-                    io:format("~p", [Response])
+                    Result = maps:get(<<"result">>, Response, error),
+                    if Result =/= error ->
+                        io:format("Drone dealing with the delivery ~p has been killed.~n", [Id]);
+                    true ->
+                        io:format("Delivery ~p was not found.~n", [Id])
+                    end
             end
     end;
 

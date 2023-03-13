@@ -1,6 +1,6 @@
 -module(drone_main).
 
--export([start_link/0, init/1, drone_synchronizer/8, send_update_table/3, agreement_loop/7]).
+-export([start_link/0, init/1, drone_synchronizer/8, send_update_table/3, agreement_loop/7, go_to_agreement/2]).
 
 start_link() ->
     Id = list_to_integer(os:getenv("ID")),
@@ -12,6 +12,7 @@ init(Id) ->
     process_flag(trap_exit, true),
 
     DroneHubProcess = {list_to_atom(os:getenv("DRONE_HUB_PROCESS")), list_to_atom(os:getenv("DRONE_HUB_HOST"))},
+
 
     DroneHubProcess ! {link, {node(), self()}, Id},
     {Configuration, DroneState} = receive_configuration(),
@@ -30,7 +31,6 @@ init(Id) ->
                             External_Id = maps:get(<<"id">>, Data),
                             if External_Id =/= Id ->
                                 Pid = utils:pid_decoding(maps:get(<<"pid">>, Data)),
-                                % Pid = list_to_pid(binary_to_list(maps:get(<<"pid">>, Data))),
                                 Map = #{
                                     pid => Pid,
                                     %% At the start this flag will be false for each drone in the synchronization map
@@ -71,16 +71,6 @@ init(Id) ->
                                                         end
                                             end, SynchronizationMap)
                                         end,
-            
-            
-            maps:foreach(fun(K, V) -> 
-                    logging:log(Id, "Id: ~p --> ~p", [K, V])
-                end, FilteredSynchronizationMap),
-
-
-            maps:foreach(fun(K, V) -> 
-                    logging:log(Id, "Id: ~p --> ~p", [K, V])
-                end, FilteredSynchronizationMap),
 
             Size = maps:size(FilteredSynchronizationMap),
             if Size > 0 ->
@@ -103,7 +93,7 @@ init(Id) ->
 
 receive_configuration() ->
     receive
-        {config, CodedPid, RestEndpoint, Velocity, Drone_size, Notify_Threshold, Policy, Recovery, Height, Start, Current, End, State, Fallen} ->
+        {config, CodedPid, RestEndpoint, Velocity, Drone_size, Notify_Threshold, Recovery, Height, Start, Current, End, State, Fallen} ->
             Config = #{
                 coded_pid => CodedPid, 
                 rest_endpoint => RestEndpoint,
@@ -113,7 +103,6 @@ receive_configuration() ->
                 recovery_start => Current,
                 velocity => Velocity,
                 drone_size => Drone_size,
-                policy => Policy,
                 notify_threshold => Notify_Threshold,
                 recovery => Recovery
             },
@@ -148,7 +137,7 @@ sync_loop(Id, Configuration, DroneState, CollisionTable, SynchronizationMap, New
             
             ReceivedResultFlag = maps:get(received_result, maps:get(External_Id, SynchronizationMap)),
 
-            %% This is done because it's possible that during the sync loop I received a sync hello message from a drone for which I have created a drone synchronizer that
+            %% This is done because it's possible that during the sync loop I received a sync hello message from a drone, for which I have created a drone synchronizer, that
             %% has fallen during my sync phase
             {NewPersonalCollisions, NewSynchronizationMap} = if ReceivedResultFlag == true ->
                                                                 {PersonalCollisions, SynchronizationMap};
@@ -213,7 +202,7 @@ sync_loop(Id, Configuration, DroneState, CollisionTable, SynchronizationMap, New
                 sync_loop(Id, Configuration, DroneState, CollisionTable, NewSynchronizationMap, NewDrones, NewPersonalCollisions, ToNotUpdate)
             end;
 
-        {sync_hello, FromPid, FromId, FromRoute} ->
+        {sync_hello, FromPid, FromId, _FromMainPid, FromRoute} ->
             logging:log(Id, "Received sync_hello message from drone ~p to compute collision computation", [FromId]),
             MyStart = utils:get_route_start(Configuration),
             MyEnd = maps:get(route_end, Configuration),
@@ -222,8 +211,14 @@ sync_loop(Id, Configuration, DroneState, CollisionTable, SynchronizationMap, New
             {Collision_response, Collision_points} = collision_detection:compute_collision(DroneSize, Id, {MyStart, MyEnd}, FromId, FromRoute),
             NewPersonalCollisions = utils:update_personal_collisions(Collision_response, FromPid, FromId, Collision_points, PersonalCollisions),
             
-            Map = maps:put(received_result, true, maps:get(FromId, SynchronizationMap)),
-            NewSynchronizationMap = maps:put(FromId, Map, SynchronizationMap),
+
+            PresentInSynchronizationMap = maps:get(FromId, SynchronizationMap, false),
+            NewSynchronizationMap = if PresentInSynchronizationMap =/= false ->
+                                        Map = maps:put(received_result, true, maps:get(FromId, SynchronizationMap)),
+                                        maps:put(FromId, Map, SynchronizationMap);
+                                    true -> 
+                                        SynchronizationMap
+                                    end,
 
             AlreadyInCollisionTable = maps:get(FromId, CollisionTable, false),
             UpdatedCollisionTable = if AlreadyInCollisionTable =/= false ->

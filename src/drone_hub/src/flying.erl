@@ -55,22 +55,16 @@ handle_state(Id, Configuration, DroneState, CurrentPosition, CollisionTable, New
                     Find = maps:get(FromId, CollisionTable, not_exists),
                     if Find =/= not_exists ->
                         %% In this case the drone has already an entry about FromId in its CollisionTable
-                        %% Actually, this case could not happen
-                        %%
-                        %% Actually, this case can happen: For example, drone 0 is flying, then drone 1 join the network and after synchronization send its first update_table message to drone 0
-                        %% So, drone 0 insert the row about 1 in its CollisionTable. Then, drone 2 joins the network and after synchronization send update_table message to drone 1
-                        %% Since, drone is currently waiting the ack from drone 0, after it applies the update_table message of drone 2 to its table, 
-                        %% then it propagates its updated entry also to drone 0. Since drone 0 is still flying, when it receives the update_table message from drone 1, it sees that it already
-                        %% has an entry about 1 in its CollisionTable, so the drone ends in this if case
-                        %%
-                        %%
-                        %% (theoretically it should't receive in this case an update_table message from someone that it already knows because the condition for the
-                        %% current drone to start flying is to receive a notify message from all the other drones colliding with him
-                        %% --> so, all these other drones should send update_table messages only when they have received all the acks; moreover these update_table messages
-                        %% shouldn't be sent to drones for which they have received an ack before)
-                        %% With Fault tolerance this can happen!
+                        %% This case happen when a drone that is already in our CollisionTable has a failure
+                        %% So, when the corresponding recovery drone is spawned and do the synchronization, we
+                        %% receive a message from someone that we already have in our CollisiontTable 
                         logging:log(Id, "Received update_table message from drone ~p while flying", [FromId]),
 
+                        %% When a drone, while is flying, receive an update_table message from a drone (that before has failed)
+                        %% we must check if the collision with this drone has been already passed or not
+                        %% In the case there's still collision we reply with another update_table message of type add
+                        %% Otherwise, if at reception of this message, the drone isn't anymore in collision with the other
+                        %% the drone reply with an update_table message of type remove
                         Start = utils:get_route_start(Configuration),
                         End = maps:get(route_end, Configuration),
                         DroneSize = maps:get(drone_size, Configuration),
@@ -145,6 +139,7 @@ handle_state(Id, Configuration, DroneState, CurrentPosition, CollisionTable, New
                     Passed = check_intersection_passed(Start, End, CurrentPosition, IntersectionPoint, DroneSize),
                     logging:log(Id, "Received notify message from drone ~p while flying", [FromId]),
                     if Passed == true ->
+                        %% When is received a notify from someone with which there's no more collision, we directly send back the corresponding ack message
                         FromPid ! {ack, self(), Id},
                         logging:log(Id, "Sent ack message to drone ~p", [FromId]),
                         NewPersonalCollisions = maps:remove(FromId, PersonalCollisions),
@@ -153,6 +148,10 @@ handle_state(Id, Configuration, DroneState, CurrentPosition, CollisionTable, New
                         UpdatedCollisionTable = maps:put(Id, NewMyCollisions, NewCollisionTable),
                         handle_state(Id, Configuration, DroneState, CurrentPosition, UpdatedCollisionTable, NewDrones, NewPersonalCollisions, ToBeAcked, FlyingProcessPid, RestConnection, AlreadyAcked);
                     true ->
+                        %% A new entry for the notify message just received must be added in the ToBeAcked buffer
+                        %% but with flag received equal to post
+                        %% A flag "received" of type "post" means that the check if the respective ack should be sent must be done watching 
+                        %% only the update_position messsage of type normal sent by the flight process
                         NewToBeAcked = [#{id => FromId, received => post} | ToBeAcked],
 
                         handle_state(Id, Configuration, DroneState, CurrentPosition, CollisionTable, NewDrones, PersonalCollisions, NewToBeAcked, FlyingProcessPid, RestConnection, AlreadyAcked)
@@ -165,6 +164,14 @@ handle_state(Id, Configuration, DroneState, CurrentPosition, CollisionTable, New
         {update_position, FlyingProcessPid, Id, New_x, New_y, Real_x, Real_y, Type} ->
             logging:log(Id, "Arrived at point (~p, ~p) of type ~p", [Real_x, Real_y, Type]),
             
+            %% An update_position message can be of four type:
+            %%      - taking_off -> means that the drone has reached the fixed height of fly
+            %%      - landing -> means that the drone after reaching the end poisitions is landed on the groung
+            %%      - normal -> is a normal update of the current_position that means that the drone in 1 second has travelled of a distance
+            %%                  equal to the velocity parameter
+            %%                  Moreover, when a message of this type is received, it is checked if it is possible to send ack to drones that
+            %%                  has sent notify to us while we were already flying
+            %%      - ack ->    means that a point of ack has been reached, so it must be checked to which processes an ack message must be sent
             if Type == taking_off ->
                 logging:log(Id, "Reached height of fly", []);
             Type == landing ->
@@ -197,7 +204,7 @@ handle_state(Id, Configuration, DroneState, CurrentPosition, CollisionTable, New
                     end_y => End_y,
                     fallen => Fallen
                 },
-                %% TODO: Add management of the response
+                
                 _Response = http_utils:doPost(RestConnection, Resource, UpdatedDelivery);
             true ->
                 ok
@@ -277,6 +284,8 @@ handle_state(Id, Configuration, DroneState, CurrentPosition, CollisionTable, New
                 NewFlyingProcessPid = on_waiting_notify:spawnFlightProcess(Id, Configuration, PersonalCollisions, Ids_toBeAcked),
                 handle_state(Id, Configuration, DroneState, CurrentPosition, CollisionTable, NewDrones, PersonalCollisions, UpdatedToBeAcked, NewFlyingProcessPid, RestConnection, AlreadyAcked);
             true ->
+                %% If there are still rows, different from the ours, in the CollisionTable we can send an ack message to each the corresponding drones
+                %% to be sure that they don't wait anymore for us
                 RemainingAcks = lists:delete(Id, maps:keys(CollisionTable)),
                 lists:foreach(fun(DroneId) -> 
                                 DronePid = maps:get(DroneId, NewDrones),
@@ -284,7 +293,9 @@ handle_state(Id, Configuration, DroneState, CurrentPosition, CollisionTable, New
                         end, RemainingAcks),
 
                 %% It's possible that when the flight is completed there are still some update_table messages that are coming
-                %% from some new drone that sent a sync_hello with a collision result. In this case, to 
+                %% from some new drone that sent a sync_hello with a collision_result equal to collision.
+                %% In this case, since it's possible that an update_table message is coming from these drones, we can already send back
+                %% an update_table message of type remove
                 maps:foreach(fun(_DroneId, Entry) -> 
                             DronePid = maps:get(pid, Entry),
                             DronePid ! {update_table, self(), Id, remove, none, none, none}
@@ -309,7 +320,7 @@ handle_state(Id, Configuration, DroneState, CurrentPosition, CollisionTable, New
                     end_y => End_y,
                     fallen => Fallen
                 },
-                %% TODO: Add management of the response
+
                 _Response = http_utils:doPost(RestConnection, Resource, UpdatedDelivery),
 
                 logging:log(Id, "Arrived at the final point of the delivery", [])

@@ -81,7 +81,7 @@ compute_collision(DroneSize, Id, {S_a, E_a}, External_Id, {S_b, E_b}) ->
 
                 {false, overlap} ->
                     %% The two routes are neither parallels and in intersection
-                    %% but both thei projection on the x and on the y axes overlap
+                    %% but both their projection on the x and on the y axes overlap
                     %% In this case there can be a collision between one of the endpoints
                     %% of a route and the other route
 

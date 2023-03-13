@@ -47,7 +47,6 @@ loop(IdMax, Spawned, MonitoredDrones, Id_to_Pid, EnvironmentVariables) ->
             if DEV_MODE == true ->
                 spawnLocalDrone(IdMax);
             true ->
-                % spawn(?MODULE, spawnDrone, [IdMax, false])
                 spawnDrone(IdMax, false)
             end,
             Delivery = #{
@@ -84,24 +83,22 @@ loop(IdMax, Spawned, MonitoredDrones, Id_to_Pid, EnvironmentVariables) ->
             State = pending,
             Fallen = maps:get(fallen, Delivery),
             RecoveryFlag = maps:get(recovery, Delivery),
-            Policy = fun(CollisionTable, Notify_Threshold) -> agreementPolicy(CollisionTable, Notify_Threshold) end,
-            
             
             FromPid ! {config, CodedPid, 
                                 os:getenv("REST_ENDPOINT"),
                                 maps:get(velocity, EnvironmentVariables), maps:get(drone_size, EnvironmentVariables), 
-                                maps:get(notify_threshold, EnvironmentVariables), Policy, RecoveryFlag, 
+                                maps:get(notify_threshold, EnvironmentVariables), RecoveryFlag, 
                                 maps:get(fly_height, EnvironmentVariables), {StartX, StartY}, {CurrentX, CurrentY}, {EndX, EndY}, State, Fallen},
 
             NewMonitoredDrones = maps:put(FromPid, Id, MonitoredDrones),
             NewId_to_Pid = maps:put(Id, FromPid, Id_to_Pid),
             loop(IdMax, NewSpawned, NewMonitoredDrones, NewId_to_Pid, EnvironmentVariables); 
         {'DOWN', _Ref, process, FromPid, Reason} ->
+            DEV_MODE = list_to_atom(os:getenv("DEV_MODE", "false")),
             if Reason =/= normal ->
                 Id = maps:get(FromPid, MonitoredDrones),
                 logging:log("Drone ~p crashed.~n A new drone will be spawned to complete its delivery", [Id]),
                 Delivery = get_last_drone_update(Id),
-                DEV_MODE = list_to_atom(os:getenv("DEV_MODE", "false")),
                 if DEV_MODE == true ->
                     spawnLocalDrone(Id);
                 true ->
@@ -113,8 +110,12 @@ loop(IdMax, Spawned, MonitoredDrones, Id_to_Pid, EnvironmentVariables) ->
             true ->
                 DroneId = maps:get(FromPid, MonitoredDrones),
                 logging:log("Drone ~p has completed its task", [DroneId]),
-                utils:stop_container(DroneId),
-                utils:remove_container(DroneId),
+                if DEV_MODE =/= true ->
+                    utils:stop_container(DroneId),
+                    utils:remove_container(DroneId);
+                true ->
+                    ok
+                end,
                 NewMonitoredDrones = maps:remove(DroneId, MonitoredDrones),
                 loop(IdMax, Spawned, NewMonitoredDrones, Id_to_Pid, EnvironmentVariables)
             end;
@@ -153,12 +154,13 @@ spawnDrone(Id, Recovery) ->
     ContainerName = "drone_" ++ integer_to_list(Id),
     HostName = integer_to_list(Id) ++ "_host",
     EnvVariable = "ID=" ++ integer_to_list(Id),
-    Volume = "dis_sys",
-    Destination = "/dis_sys",
+    Volume = "/dis_sys",
+    HostPath = os:getenv("HOST_PATH_VOLUME"),
     Image = "drone_image",
     if Recovery =/= true ->
         Command = "docker -H unix:///var/run/docker.sock run -d --name " ++ ContainerName ++ 
-                    " --mount source=" ++ Volume ++ ",destination=" ++ Destination ++
+                    " -v " ++ HostPath ++ ":" ++ Volume ++
+                    % " --mount source=" ++ Volume ++ ",destination=" ++ Destination ++
                     " -h " ++ HostName ++ " --env " ++ EnvVariable ++
                     " --net " ++ Network ++ " " ++ Image,
         _StdOut = os:cmd(Command),
@@ -254,51 +256,3 @@ restoreDrone(Drone, Spawned) ->
 
 kill_drone(Pid) ->
     exit(Pid, kill).
-
-agreementPolicy(CollisionTable, Notify_Threshold) ->
-    FirstRule = maps:fold(fun(K, V, AccIn) ->
-                State = maps:get(state, V),
-                if State == flying ->
-                    AccOut = [K | AccIn],
-                    AccOut;
-                true ->
-                    AccIn
-                end
-    end, [], CollisionTable),
-    FirstRuleOrdered = lists:sort(FirstRule),
-    TableAfterFirstRule = lists:foldl(fun(K, Acc) -> 
-                            Out = maps:remove(K, Acc),
-                            Out
-                    end, CollisionTable, FirstRuleOrdered),
-    SecondRule = maps:fold(fun(K, V, AccIn) ->
-                        Count = length(maps:get(notify_count, V)),
-                        if Count >= Notify_Threshold ->
-                            AccOut = [K | AccIn],
-                            AccOut;
-                        true ->
-                            AccIn
-                        end
-                    end, [], TableAfterFirstRule),
-    SecondRuleOrdered = lists:sort(SecondRule),
-    TableAfterSecondRule = lists:foldl(fun(K, Acc) -> 
-                            Out = maps:remove(K, Acc),
-                            Out
-                    end, TableAfterFirstRule, SecondRuleOrdered),
-    ThirdRuleOrdered = lists:sort(fun({A, MapA}, {B, MapB}) ->
-                    CollisionA = sets:size(maps:get(collisions, MapA)),
-                    CollisionB = sets:size(maps:get(collisions, MapB)),
-                    if CollisionA < CollisionB ->
-                        true;
-                    CollisionA == CollisionB ->
-                        if A < B ->
-                            true;
-                        true ->
-                            false
-                        end;
-                    true ->
-                        false
-                    end
-        end, maps:to_list(TableAfterSecondRule)),
-    ThirdRuleIds = lists:map(fun({K, _V}) -> K end, ThirdRuleOrdered),
-    TotalOrdering = lists:append(FirstRuleOrdered, lists:append(SecondRuleOrdered, ThirdRuleIds)),
-    TotalOrdering.
