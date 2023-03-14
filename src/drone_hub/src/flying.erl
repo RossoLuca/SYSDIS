@@ -191,24 +191,31 @@ handle_state(Id, Configuration, DroneState, CurrentPosition, CollisionTable, New
             %% The update of the current position must be done here only when the state is flying
             %% Otherwise the update of the state to completed must be done when all the needed messages are
             %% alreby been sent
-            if DeliveryState == flying ->
-                UpdatedDelivery = #{
-                    id => Id,
-                    pid => CodedPid,
-                    state => DeliveryState,
-                    start_x => Start_x,
-                    start_y => Start_y,
-                    current_x => Real_x,
-                    current_y => Real_y,
-                    end_x => End_x, 
-                    end_y => End_y,
-                    fallen => Fallen
-                },
-                
-                _Response = http_utils:doPost(RestConnection, Resource, UpdatedDelivery);
-            true ->
-                ok
-            end,
+            NewRestConnection = if DeliveryState == flying ->
+                                    UpdatedDelivery = #{
+                                        id => Id,
+                                        pid => CodedPid,
+                                        state => DeliveryState,
+                                        start_x => Start_x,
+                                        start_y => Start_y,
+                                        current_x => Real_x,
+                                        current_y => Real_y,
+                                        end_x => End_x, 
+                                        end_y => End_y,
+                                        fallen => Fallen
+                                    },
+                                    
+                                    Response = http_utils:doPost(RestConnection, Resource, UpdatedDelivery),
+                                    if Response == error ->
+                                        NewConnection = http_utils:createConnection(maps:get(rest_endpoint, Configuration)),
+                                        _retry = http_utils:doPost(NewConnection, Resource, UpdatedDelivery),
+                                        NewConnection;
+                                    true ->
+                                        RestConnection
+                                    end;
+                                true ->
+                                    RestConnection
+                                end,
 
             NewToBeAcked = lists:foldl(fun(T, Acc) ->
                     WasAlreadyAcked = lists:member(maps:get(id, T), AlreadyAcked),
@@ -273,7 +280,7 @@ handle_state(Id, Configuration, DroneState, CurrentPosition, CollisionTable, New
             RemovedPersonalCollisions = sets:to_list(sets:subtract(sets:from_list(maps:keys(CollisionTable)), sets:from_list(maps:keys(UpdatedCollisionTable)))),
             NewPersonalCollisions = maps:without(RemovedPersonalCollisions, PersonalCollisions),
 
-            handle_state(Id, Configuration, NewDroneState, {Real_x, Real_y}, UpdatedCollisionTable, NewDrones, NewPersonalCollisions, UpdatedToBeAcked, FlyingProcessPid, RestConnection, NewAlreadyAcked);
+            handle_state(Id, Configuration, NewDroneState, {Real_x, Real_y}, UpdatedCollisionTable, NewDrones, NewPersonalCollisions, UpdatedToBeAcked, FlyingProcessPid, NewRestConnection, NewAlreadyAcked);
 
         {'EXIT', FlyingProcessPid, Reason} ->
             if Reason =/= normal ->

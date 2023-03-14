@@ -166,7 +166,7 @@ spawnDrone(Id, Recovery) ->
         _StdOut = os:cmd(Command),
         logging:log(_StdOut);
     true -> 
-        Command = "docker -H unix:///var/run/docker.sock start " ++ ContainerName,
+        Command = "docker -H unix:///var/run/docker.sock restart " ++ ContainerName,
         _StdOut = os:cmd(Command),
         logging:log(_StdOut)
     end.

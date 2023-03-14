@@ -1,7 +1,7 @@
 -module(http_utils).
 
 -export([createConnection/0, createConnection/1, doGet/2, doPost/3]).
-
+ 
 % Returns an HTTP connection to the Rest API
 createConnection() ->
     Endpoint = os:getenv("REST_ENDPOINT", undefined),
@@ -55,7 +55,6 @@ doPost(Connection, Path, Data) ->
         {response, nofin, _Status, _Headers} ->
             {ok, ResponseBody} = gun:await_body(Connection, StreamRef),
             jiffy:decode(ResponseBody);
-        {error, timeout} ->
-            logging:log("The Rest API isn't reachable in this moment. Process will be restarted to do another attempt"),
-            exit(self(), kill)
+        {error, _} ->
+            connection_closed
     end.
