@@ -1,9 +1,27 @@
 -module(synchronization).
 
--export([sync_loop/8, test_table/7]).
+-export([sync_loop/9, test_table/7]).
 
-sync_loop(Id, Configuration, DroneState, CollisionTable, SynchronizationMap, NewDrones, PersonalCollisions, ToNotUpdate) ->
+sync_loop(Id, Configuration, DroneState, CollisionTable, SynchronizationMap, NewDrones, PersonalCollisions, ToNotUpdate, Synchronizers) ->
     receive
+        {'DOWN', _Ref, process, FromPid, Reason} ->
+            if Reason =/= normal ->
+                External_Id = maps:get(FromPid, Synchronizers, false),
+                if External_Id =/= false ->
+                    NewSynchronizers = maps:remove(FromPid, Synchronizers),
+                    Route = {utils:get_route_start(Configuration), maps:get(route_end, Configuration)},
+                    Message = {sync_hello, self(), Id, Route},
+                    External_Pid = maps:get(pid, External_Id, SynchronizationMap),
+                    SyncPid = spawn(drone_main, drone_synchronizer, [Id, self(), maps:get(drone_size, Configuration), Route, External_Id, External_Pid, 0, Message]),
+                    erlang:monitor(process, SyncPid),
+                    UpdatedSynchronizers = maps:put(SyncPid, External_Id, NewSynchronizers),
+                    sync_loop(Id, Configuration, DroneState, CollisionTable, SynchronizationMap, NewDrones, PersonalCollisions, ToNotUpdate, UpdatedSynchronizers);
+                true ->
+                    sync_loop(Id, Configuration, DroneState, CollisionTable, SynchronizationMap, NewDrones, PersonalCollisions, ToNotUpdate, Synchronizers)
+                end;
+            true ->
+                sync_loop(Id, Configuration, DroneState, CollisionTable, SynchronizationMap, NewDrones, PersonalCollisions, ToNotUpdate, Synchronizers)
+            end;
         {collision_response, External_Pid, External_Id, Collision_response, Collision_points} ->
             
             ReceivedResultFlag = maps:get(received_result, maps:get(External_Id, SynchronizationMap)),
@@ -66,32 +84,32 @@ sync_loop(Id, Configuration, DroneState, CollisionTable, SynchronizationMap, New
                 if StartAgreement == true ->
                     test_table(Id, Configuration, DroneState, NewCollisionTable, NewDrones, NewPersonalCollisions, ToNotUpdate);
                 true ->
-                    sync_loop(Id, Configuration, DroneState, NewCollisionTable, NewSynchronizationMap, NewDrones, NewPersonalCollisions, ToNotUpdate)
+                    sync_loop(Id, Configuration, DroneState, NewCollisionTable, NewSynchronizationMap, NewDrones, NewPersonalCollisions, ToNotUpdate, Synchronizers)
                 end;
             true ->
-                sync_loop(Id, Configuration, DroneState, CollisionTable, NewSynchronizationMap, NewDrones, NewPersonalCollisions, ToNotUpdate)
+                sync_loop(Id, Configuration, DroneState, CollisionTable, NewSynchronizationMap, NewDrones, NewPersonalCollisions, ToNotUpdate, Synchronizers)
             end;
 
-        {sync_hello, FromPid, FromId, FromRoute} ->
-            MyStart = utils:get_route_start(Configuration),
-            MyEnd = maps:get(route_end, Configuration),
-            DroneSize = maps:get(drone_size, Configuration),
+        % {sync_hello, FromPid, FromId, FromRoute} ->
+        %     MyStart = utils:get_route_start(Configuration),
+        %     MyEnd = maps:get(route_end, Configuration),
+        %     DroneSize = maps:get(drone_size, Configuration),
 
-            {Collision_response, Collision_points} = collision_detection:compute_collision(DroneSize, Id, {MyStart, MyEnd}, FromId, FromRoute),
-            NewPersonalCollisions = utils:update_personal_collisions(Collision_response, FromPid, FromId, Collision_points, PersonalCollisions),
+        %     {Collision_response, Collision_points} = collision_detection:compute_collision(DroneSize, Id, {MyStart, MyEnd}, FromId, FromRoute),
+        %     NewPersonalCollisions = utils:update_personal_collisions(Collision_response, FromPid, FromId, Collision_points, PersonalCollisions),
             
-            Map = maps:put(received_result, true, maps:get(FromId, SynchronizationMap)),
-            NewSynchronizationMap = maps:put(FromId, Map, SynchronizationMap),
+        %     Map = maps:put(received_result, true, maps:get(FromId, SynchronizationMap)),
+        %     NewSynchronizationMap = maps:put(FromId, Map, SynchronizationMap),
 
-            AlreadyInCollisionTable = maps:get(FromId, CollisionTable, false),
-            UpdatedCollisionTable = if AlreadyInCollisionTable =/= false ->
-                                        maps:remove(FromId, CollisionTable);
-                                    true ->
-                                        CollisionTable
-                                    end,
+        %     AlreadyInCollisionTable = maps:get(FromId, CollisionTable, false),
+        %     UpdatedCollisionTable = if AlreadyInCollisionTable =/= false ->
+        %                                 maps:remove(FromId, CollisionTable);
+        %                             true ->
+        %                                 CollisionTable
+        %                             end,
 
-            FromPid ! {sync_result, self(), Id, Collision_response, Collision_points},
-            sync_loop(Id, Configuration, DroneState, UpdatedCollisionTable, NewSynchronizationMap, maps:put(FromId, FromPid, NewDrones), NewPersonalCollisions, ToNotUpdate);
+        %     FromPid ! {sync_result, self(), Id, Collision_response, Collision_points},
+        %     sync_loop(Id, Configuration, DroneState, UpdatedCollisionTable, NewSynchronizationMap, maps:put(FromId, FromPid, NewDrones), NewPersonalCollisions, ToNotUpdate);
         
         {update_table, FromPid, FromId, Action, FromCollidingDrones, FromState, FromNotify_count} ->
 
@@ -145,10 +163,10 @@ sync_loop(Id, Configuration, DroneState, CollisionTable, SynchronizationMap, New
                     if StartAgreement == true ->
                         test_table(Id, Configuration, DroneState, NewCollisionTable, NewDrones, NewPersonalCollisions, ToNotUpdate);
                     true ->
-                        sync_loop(Id, Configuration, DroneState, NewCollisionTable, NewSynchronizationMap, NewDrones, NewPersonalCollisions, ToNotUpdate)
+                        sync_loop(Id, Configuration, DroneState, NewCollisionTable, NewSynchronizationMap, NewDrones, NewPersonalCollisions, ToNotUpdate, Synchronizers)
                     end;
             true ->
-                sync_loop(Id, Configuration, DroneState, CollisionTable, NewSynchronizationMap, NewDrones, PersonalCollisions, ToNotUpdate)
+                sync_loop(Id, Configuration, DroneState, CollisionTable, NewSynchronizationMap, NewDrones, PersonalCollisions, ToNotUpdate, Synchronizers)
             end
     end.
 

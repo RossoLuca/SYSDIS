@@ -13,11 +13,14 @@ init_drone(Id, SynchronizationMap, Configuration, DroneState) ->
         CollisionTable = #{},
         Message = {sync_hello, self(), Id, Route},
         
-        maps:foreach(fun(External_Id, Entry) ->
-                            External_Pid = maps:get(pid, Entry),
-                            spawn(?MODULE, drone_synchronizer, [Id, self(), maps:get(drone_size, Configuration), Route, External_Id, External_Pid, 0, Message])
-                    end, SynchronizationMap),
-        synchronization:sync_loop(Id, Configuration, DroneState, CollisionTable, SynchronizationMap, NewDrones, PersonalCollisions, ToNotUpdate);
+        Synchronizers = maps:fold(fun(External_Id, Entry, Acc) ->
+                                    External_Pid = maps:get(pid, Entry),
+                                    SyncPid = spawn(drone_sync_fixture, drone_synchronizer, [Id, self(), maps:get(drone_size, Configuration), Route, External_Id, External_Pid, 0, Message]),
+                                    erlang:monitor(process, SyncPid),
+                                    AccOut = maps:put(SyncPid, External_Id, Acc),
+                                    AccOut
+                        end, #{}, SynchronizationMap),
+        synchronization:sync_loop(Id, Configuration, DroneState, CollisionTable, SynchronizationMap, NewDrones, PersonalCollisions, ToNotUpdate, Synchronizers);
     true ->
         CollisionTable = #{
                 Id => #{notify_count => [], collisions => sets:new(), state => pending}
