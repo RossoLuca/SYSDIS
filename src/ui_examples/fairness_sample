@@ -1,0 +1,5 @@
+terminal:insert_and_monitor_delivery(10.0,10.0,60.0,60.0), 
+terminal:insert_and_monitor_delivery(15.0,20.0,30.0,5.0), 
+terminal:insert_and_monitor_delivery(30.0,40.0,70.0,35.0), 
+terminal:insert_and_monitor_delivery(60.0,20.0,42.0,55.0), 
+terminal:insert_and_monitor_delivery(100.0,100.0,120.0,75.0).
