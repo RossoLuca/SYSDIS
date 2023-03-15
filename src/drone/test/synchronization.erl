@@ -89,27 +89,6 @@ sync_loop(Id, Configuration, DroneState, CollisionTable, SynchronizationMap, New
             true ->
                 sync_loop(Id, Configuration, DroneState, CollisionTable, NewSynchronizationMap, NewDrones, NewPersonalCollisions, ToNotUpdate, Synchronizers)
             end;
-
-        % {sync_hello, FromPid, FromId, FromRoute} ->
-        %     MyStart = utils:get_route_start(Configuration),
-        %     MyEnd = maps:get(route_end, Configuration),
-        %     DroneSize = maps:get(drone_size, Configuration),
-
-        %     {Collision_response, Collision_points} = collision_detection:compute_collision(DroneSize, Id, {MyStart, MyEnd}, FromId, FromRoute),
-        %     NewPersonalCollisions = utils:update_personal_collisions(Collision_response, FromPid, FromId, Collision_points, PersonalCollisions),
-            
-        %     Map = maps:put(received_result, true, maps:get(FromId, SynchronizationMap)),
-        %     NewSynchronizationMap = maps:put(FromId, Map, SynchronizationMap),
-
-        %     AlreadyInCollisionTable = maps:get(FromId, CollisionTable, false),
-        %     UpdatedCollisionTable = if AlreadyInCollisionTable =/= false ->
-        %                                 maps:remove(FromId, CollisionTable);
-        %                             true ->
-        %                                 CollisionTable
-        %                             end,
-
-        %     FromPid ! {sync_result, self(), Id, Collision_response, Collision_points},
-        %     sync_loop(Id, Configuration, DroneState, UpdatedCollisionTable, NewSynchronizationMap, maps:put(FromId, FromPid, NewDrones), NewPersonalCollisions, ToNotUpdate);
         
         {update_table, FromPid, FromId, Action, FromCollidingDrones, FromState, FromNotify_count} ->
 
